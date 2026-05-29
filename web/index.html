@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tokyo Metro — Live Rail Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Share+Tech+Mono&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ══ LOADING SCREEN ══ -->
+<div id="loading">
+  <div class="loading-title">東京メトロ</div>
+  <div class="loading-sub">Tokyo Metro Live Rail System</div>
+  <div class="loading-bar-wrap">
+    <div class="loading-bar" id="loading-bar"></div>
+  </div>
+  <div class="loading-status" id="loading-status">INITIALIZING...</div>
+</div>
+
+<!-- ══ MAP ══ -->
+<div id="map"></div>
+
+<!-- ══ HEADER ══ -->
+<div id="header">
+  <div id="header-title">
+    <span class="jp">東京地下鉄 リアルタイム監視</span>
+    <span class="en">TOKYO METRO LIVE</span>
+  </div>
+  <div id="live-badge"><div class="dot"></div>LIVE</div>
+  <div id="clock">--:--:--</div>
+  <div id="next-update">NEXT UPDATE: --s</div>
+</div>
+
+<!-- ══ DELAY ALERT BANNER ══ -->
+<div id="alert-banner">⚠ DELAY DETECTED ON NETWORK</div>
+
+<!-- ══ LINE FILTER SIDEBAR ══ -->
+<div id="line-filters">
+  <button id="toggle-all-btn">ALL LINES</button>
+</div>
+
+<!-- ══ BOTTOM STATS ══ -->
+<div id="stats-panel">
+  <div class="stat-row">
+    <span class="stat-label">STATIONS</span>
+    <span class="stat-value" id="stat-stations">—</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">LINES</span>
+    <span class="stat-value" id="stat-trains">—</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">DELAYED</span>
+    <span class="stat-value danger" id="stat-delayed">—</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">NORMAL</span>
+    <span class="stat-value success" id="stat-normal">—</span>
+  </div>
+</div>
+
+<!-- ══ INFO PANEL (right) ══ -->
+<div id="info-panel">
+  <button id="info-close">✕</button>
+  <div class="info-type"  id="info-type">—</div>
+  <div class="info-name"  id="info-name">—</div>
+  <div class="info-sub"   id="info-sub">—</div>
+  <div class="info-divider"></div>
+  <div id="info-rows"></div>
+</div>
+
+<script>
+/* ============================================================
+   CONSTANTS & CONFIG
+   ============================================================ */
+const API_KEY = '2swbs2ofcui4yan1ri19phbxes2r5gxdxhhxbomczfuayo6jobyrl1atiyyy68ym';
+const BASE    = 'https://api.odpt.org/api/v4';
+const UPDATE_INTERVAL = 20; // seconds
+
+/* Official Tokyo Metro line colours */
+const LINE_META = {
+  Ginza:      { color: '#F39700', jp: '銀座線',   short: 'G' },
+  Marunouchi: { color: '#E60012', jp: '丸ノ内線', short: 'M' },
+  Hibiya:     { color: '#9CAEB7', jp: '日比谷線', short: 'H' },
+  Tozai:      { color: '#00A7DB', jp: '東西線',   short: 'T' },
+  Chiyoda:    { color: '#00BB85', jp: '千代田線', short: 'C' },
+  Yurakucho:  { color: '#C1A470', jp: '有楽町線', short: 'Y' },
+  Hanzomon:   { color: '#8F76D6', jp: '半蔵門線', short: 'Z' },
+  Namboku:    { color: '#00AC9B', jp: '南北線',   short: 'N' },
+  Fukutoshin: { color: '#9B7CB6', jp: '副都心線', short: 'F' },
+};
+
+/* ── State ── */
+let map;
+let stations    = [];
+let trainInfo   = [];
+let railways    = [];
+let stationData = {};           // keyed by owl:sameAs id
+let activeLines = new Set(Object.keys(LINE_META));
+let stationMarkers = [];
+let trainMarkers   = [];
+let countdownTimer = null;
+let countdown      = UPDATE_INTERVAL;
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+function getLineKey(rawId) {
+  if (!rawId) return null;
+  const name = rawId.split(':').pop();
+  return Object.keys(LINE_META).find(k => name.includes(k)) || null;
+}
+
+function getLineColor(rawId, fallback = '#888') {
+  const k = getLineKey(rawId);
+  return k ? LINE_META[k].color : fallback;
+}
+
+function setLoadingProgress(pct, msg) {
+  document.getElementById('loading-bar').style.width = pct + '%';
+  document.getElementById('loading-status').textContent = msg;
+}
+
+async function fetchAPI(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+/* Extract delay minutes from Japanese status text.
+   Looks for patterns like "約○分" (approx N min) or "○分程度". */
+function extractDelayMinutes(textJa = '', textEn = '') {
+  // Japanese: 約XX分 / XX分程度 / XX分以上
+  const jaMatch = textJa.match(/約?(\d+)\s*分/);
+  if (jaMatch) return parseInt(jaMatch[1], 10);
+  // English: N minute(s) / N min delay
+  const enMatch = textEn.match(/(\d+)\s*(?:minute|min)/i);
+  if (enMatch) return parseInt(enMatch[1], 10);
+  return null;
+}
+
+/* Format an ISO date string to HH:MM JST */
+function fmtTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleTimeString('ja-JP', {
+      hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: 'Asia/Tokyo'
+    });
+  } catch { return null; }
+}
+
+/* ============================================================
+   MAP INIT
+   ============================================================ */
+function initMap() {
+  map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: {
+        carto: {
+          type: 'raster',
+          tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© OpenStreetMap © CARTO'
+        }
+      },
+      layers: [{ id: 'carto-dark', type: 'raster', source: 'carto' }]
+    },
+    center: [139.745, 35.682],
+    zoom: 12,
+    minZoom: 10,
+    maxZoom: 18,
+    maxBounds: [[138.5, 35.0], [140.5, 36.3]]
+  });
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+  return new Promise(res => map.on('load', res));
+}
+
+/* ============================================================
+   DATA LOADING
+   ============================================================ */
+async function loadData() {
+  setLoadingProgress(10, 'LOADING ROUTE DATA...');
+  try { railways  = await fetchAPI(`${BASE}/odpt:Railway?odpt:operator=odpt.Operator:TokyoMetro&acl:consumerKey=${API_KEY}`); }
+  catch { railways = []; }
+
+  setLoadingProgress(30, 'LOADING STATION DATA...');
+  try { stations  = await fetchAPI(`${BASE}/odpt:Station?odpt:operator=odpt.Operator:TokyoMetro&acl:consumerKey=${API_KEY}`); }
+  catch { stations = []; }
+
+  setLoadingProgress(55, 'LOADING TRAIN STATUS...');
+  try { trainInfo = await fetchAPI(`${BASE}/odpt:TrainInformation?odpt:operator=odpt.Operator:TokyoMetro&acl:consumerKey=${API_KEY}`); }
+  catch { trainInfo = []; }
+
+  /* GTFS-RT alert endpoint returns protobuf (binary) — not directly parseable
+     in a browser without a protobuf library. We rely on TrainInformation for delay data. */
+  setLoadingProgress(80, 'BUILDING INDEX...');
+  buildStationIndex();
+  updateStats();
+}
+
+function buildStationIndex() {
+  stationData = {};
+  stations.forEach(s => {
+    const id = s['owl:sameAs'] || s['@id'];
+    if (id) stationData[id] = s;
+  });
+}
+
+/* ============================================================
+   DRAW LINES (polylines from railway station order)
+   ============================================================ */
+function drawLines() {
+  railways.forEach(rw => {
+    const rawId  = rw['owl:sameAs'] || rw['@id'] || '';
+    const lineKey = getLineKey(rawId);
+    if (!lineKey) return;
+
+    const color    = LINE_META[lineKey].color;
+    const sourceId = 'src-line-' + lineKey;
+    const layerId  = 'lyr-line-' + lineKey;
+
+    const coords = (rw['odpt:stationOrder'] || [])
+      .map(so => {
+        const s = stationData[so['odpt:station']];
+        if (!s) return null;
+        const lng = parseFloat(s['geo:long'] ?? s['geo:Point']?.['geo:long']);
+        const lat = parseFloat(s['geo:lat']  ?? s['geo:Point']?.['geo:lat']);
+        return (isNaN(lng) || isNaN(lat)) ? null : [lng, lat];
+      })
+      .filter(Boolean);
+
+    if (coords.length < 2) return;
+
+    if (!map.getSource(sourceId)) {
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+      });
+    }
+
+    if (!map.getLayer(layerId)) {
+      map.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': color,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3, 17, 6],
+          'line-opacity': 0.88
+        }
+      });
+    }
+  });
+}
+
+/* ============================================================
+   DRAW STATIONS
+   ============================================================ */
+function drawStations() {
+  stationMarkers.forEach(m => m.remove());
+  stationMarkers = [];
+
+  stations.forEach(s => {
+    const lng = parseFloat(s['geo:long'] ?? s['geo:Point']?.['geo:long']);
+    const lat = parseFloat(s['geo:lat']  ?? s['geo:Point']?.['geo:lat']);
+    if (isNaN(lng) || isNaN(lat)) return;
+
+    const lineKey = getLineKey(s['odpt:railway'] || '');
+    if (!lineKey || !activeLines.has(lineKey)) return;
+
+    const color = LINE_META[lineKey].color;
+
+    /* ── wrapper prevents layout shift on hover ── */
+    const wrap = document.createElement('div');
+    wrap.className = 'station-marker-wrap';
+
+    const dot = document.createElement('div');
+    dot.className = 'station-dot';
+    dot.style.background = color;
+    dot.style.boxShadow  = `0 0 5px ${color}88`;
+
+    wrap.appendChild(dot);
+
+    const marker = new maplibregl.Marker({ element: wrap, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .addTo(map);
+
+    wrap.addEventListener('click', e => {
+      e.stopPropagation();
+      showStationInfo(s, lineKey, color);
+    });
+
+    stationMarkers.push(marker);
+  });
+}
+
+/* ============================================================
+   DRAW TRAINS  (simulated positions from TrainInformation)
+   NOTE: The ODPT GTFS-RT endpoint is binary protobuf and cannot
+   be decoded client-side without a library. We therefore place
+   representative train icons at evenly spaced stations on each
+   line and colour them red when a delay/suspension is reported.
+   ============================================================ */
+function drawTrains() {
+  trainMarkers.forEach(m => m.remove());
+  trainMarkers = [];
+
+  trainInfo.forEach(ti => {
+    const lineKey = getLineKey(ti['odpt:railway'] || '');
+    if (!lineKey || !activeLines.has(lineKey)) return;
+
+    const textEn = ti['odpt:trainInformationText']?.en || '';
+    const textJa = ti['odpt:trainInformationText']?.ja || '';
+
+    const isDelayed    = textEn.toLowerCase().includes('delay')  || textJa.includes('遅延');
+    const isSuspended  = textJa.includes('運転見合わせ') || textEn.toLowerCase().includes('suspend');
+
+    const lineStations = stations.filter(s => getLineKey(s['odpt:railway'] || '') === lineKey);
+    if (lineStations.length < 2) return;
+
+    /* Distribute 2–5 icons along the line */
+    const count = Math.min(5, Math.max(2, Math.floor(lineStations.length / 4)));
+    const step  = Math.floor(lineStations.length / count);
+
+    for (let i = 0; i < count; i++) {
+      const s   = lineStations[i * step] || lineStations[0];
+      const lng = parseFloat(s['geo:long'] ?? s['geo:Point']?.['geo:long']);
+      const lat = parseFloat(s['geo:lat']  ?? s['geo:Point']?.['geo:lat']);
+      if (isNaN(lng) || isNaN(lat)) continue;
+
+      /* Small random offset so icons don't overlap station dots exactly */
+      const jLng = (Math.random() - 0.5) * 0.0025;
+      const jLat = (Math.random() - 0.5) * 0.0025;
+
+      const color = (isDelayed || isSuspended) ? '#ff3b3b' : LINE_META[lineKey].color;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'train-marker-wrap';
+
+      const icon = document.createElement('div');
+      icon.className = 'train-icon' + (isDelayed || isSuspended ? ' delayed' : '');
+      icon.style.background = color;
+      icon.style.boxShadow  = `0 0 8px ${color}bb, 0 0 18px ${color}55`;
+      icon.textContent = LINE_META[lineKey].short;
+
+      wrap.appendChild(icon);
+
+      const marker = new maplibregl.Marker({ element: wrap, anchor: 'center' })
+        .setLngLat([lng + jLng, lat + jLat])
+        .addTo(map);
+
+      wrap.addEventListener('click', e => {
+        e.stopPropagation();
+        showTrainInfo(ti, lineKey, color, s);
+      });
+
+      trainMarkers.push(marker);
+    }
+  });
+}
+
+/* ============================================================
+   INFO PANEL — STATION
+   ============================================================ */
+function showStationInfo(s, lineKey, color) {
+  const nameEn  = s['odpt:stationTitle']?.en || s['dc:title'] || 'Station';
+  const nameJa  = s['odpt:stationTitle']?.ja || '';
+  const lineEn  = s['odpt:railwayTitle']?.en  || lineKey + ' Line';
+  const lineJa  = LINE_META[lineKey]?.jp       || '';
+  const stCode  = s['odpt:stationCode']        || '—';
+  const exits   = s['odpt:exit']?.length        || null;
+
+  /* Get line status */
+  const ti         = trainInfo.find(t => getLineKey(t['odpt:railway'] || '') === lineKey);
+  const textEn     = ti?.['odpt:trainInformationText']?.en || 'Normal service';
+  const textJa     = ti?.['odpt:trainInformationText']?.ja || '';
+  const isDelayed  = textEn.toLowerCase().includes('delay')   || textJa.includes('遅延');
+  const isSusp     = textJa.includes('運転見合わせ') || textEn.toLowerCase().includes('suspend');
+  const delayMin   = extractDelayMinutes(textJa, textEn);
+  const updatedAt  = fmtTime(ti?.['dc:date'] || ti?.['dct:valid']);
+
+  /* Connected lines at this station */
+  const transfers = (s['odpt:connectingRailway'] || [])
+    .map(r => {
+      const k = getLineKey(r);
+      return k ? `<span style="color:${LINE_META[k].color}">${k}</span>` : null;
+    })
+    .filter(Boolean);
+
+  setInfoPanel({
+    type:  '◉ STATION',
+    name:  nameEn,
+    sub:   nameJa,
+    color,
+    rows: [
+      { key: 'LINE',    val: lineEn,  color },
+      { key: '路線',    val: lineJa },
+      { key: 'CODE',    val: stCode },
+      exits ? { key: 'EXITS', val: exits + ' exits' } : null,
+      transfers.length ? { key: 'TRANSFER', valHTML: transfers.join(' · ') } : null,
+      updatedAt ? { key: 'UPDATED', val: updatedAt } : null,
+    ],
+    status: isSusp ? 'disruption' : isDelayed ? 'delay' : 'normal',
+    statusLabel: isSusp ? '⛔ SUSPENDED' : isDelayed ? '⚠ DELAY' : '✓ NORMAL',
+    delayMin,
+    desc: textEn,
+    descJa: textJa,
+  });
+}
+
+/* ============================================================
+   INFO PANEL — TRAIN SERVICE
+   ============================================================ */
+function showTrainInfo(ti, lineKey, color, nearStation) {
+  const lineEn    = ti['odpt:railwayTitle']?.en  || lineKey + ' Line';
+  const lineJa    = LINE_META[lineKey]?.jp        || '';
+  const textEn    = ti['odpt:trainInformationText']?.en || 'Normal service';
+  const textJa    = ti['odpt:trainInformationText']?.ja || '';
+  const isDelayed = textEn.toLowerCase().includes('delay')   || textJa.includes('遅延');
+  const isSusp    = textJa.includes('運転見合わせ') || textEn.toLowerCase().includes('suspend');
+  const delayMin  = extractDelayMinutes(textJa, textEn);
+  const updatedAt = fmtTime(ti['dc:date'] || ti['dct:valid']);
+  const validUntil= fmtTime(ti['dct:valid']);
+
+  /* Nearest station name */
+  const nearEn = nearStation?.['odpt:stationTitle']?.en || '—';
+  const nearJa = nearStation?.['odpt:stationTitle']?.ja || '';
+
+  /* Cause (sometimes in separate field) */
+  const causeEn = ti['odpt:trainInformationCause']?.en || '';
+  const causeJa = ti['odpt:trainInformationCause']?.ja || '';
+
+  setInfoPanel({
+    type:  '▶ TRAIN SERVICE',
+    name:  lineEn,
+    sub:   lineJa,
+    color,
+    rows: [
+      { key: 'NEAR STA.',  val: nearEn },
+      nearJa ? { key: '最寄り駅', val: nearJa } : null,
+      updatedAt  ? { key: 'UPDATED',    val: updatedAt }  : null,
+      validUntil ? { key: 'VALID UNTIL', val: validUntil } : null,
+      causeEn    ? { key: 'CAUSE',       val: causeEn }    : null,
+    ],
+    status: isSusp ? 'disruption' : isDelayed ? 'delay' : 'normal',
+    statusLabel: isSusp ? '⛔ SUSPENDED' : isDelayed ? '⚠ DELAY' : '✓ NORMAL',
+    delayMin,
+    desc:   textEn,
+    descJa: textJa,
+    causeJa,
+  });
+}
+
+/* ── Shared render helper ── */
+function setInfoPanel({ type, name, sub, color, rows, status, statusLabel, delayMin, desc, descJa, causeJa }) {
+  document.getElementById('info-type').textContent = type;
+
+  const nameEl = document.getElementById('info-name');
+  nameEl.innerHTML = `<span style="color:${color}">${name}</span>`;
+  nameEl.style.borderLeft  = `3px solid ${color}`;
+
+  document.getElementById('info-sub').textContent = sub;
+
+  let html = `
+    <div class="info-row">
+      <span class="info-key">STATUS</span>
+      <span class="status-tag ${status}">${statusLabel}</span>
+    </div>`;
+
+  (rows || []).filter(Boolean).forEach(r => {
+    if (r.valHTML !== undefined) {
+      html += `<div class="info-row"><span class="info-key">${r.key}</span><span class="info-val">${r.valHTML}</span></div>`;
+    } else {
+      const cls = r.color ? '' : '';
+      const style = r.color ? `style="color:${r.color}"` : '';
+      html += `<div class="info-row"><span class="info-key">${r.key}</span><span class="info-val" ${style}>${r.val}</span></div>`;
+    }
+  });
+
+  /* Delay time box */
+  if ((status === 'delay' || status === 'disruption') && delayMin) {
+    html += `
+      <div class="delay-time-box">
+        <div class="delay-time-label">DELAY TIME</div>
+        <div class="delay-time-value">${delayMin}<span class="delay-time-unit">min</span></div>
+      </div>`;
+  }
+
+  html += '<div class="info-divider"></div>';
+
+  if (desc)    html += `<div class="info-desc">${desc}</div>`;
+  if (descJa)  html += `<div class="info-desc" style="margin-top:6px">${descJa}</div>`;
+  if (causeJa) html += `<div class="info-desc" style="margin-top:6px;color:rgba(255,170,0,0.8)">${causeJa}</div>`;
+
+  document.getElementById('info-rows').innerHTML = html;
+  document.getElementById('info-panel').classList.add('visible');
+}
+
+document.getElementById('info-close').addEventListener('click', () => {
+  document.getElementById('info-panel').classList.remove('visible');
+});
+
+/* ============================================================
+   LINE FILTER SIDEBAR
+   ============================================================ */
+function buildLineFilters() {
+  const container = document.getElementById('line-filters');
+
+  Object.entries(LINE_META).forEach(([key, meta]) => {
+    const btn = document.createElement('button');
+    btn.className  = 'line-btn active';
+    btn.dataset.line = key;
+    btn.style.setProperty('--line-color', meta.color);
+
+    updateBtnDelayState(btn, key);
+
+    btn.innerHTML = `
+      <div class="line-dot"></div>
+      <div>
+        <div>${key} Line</div>
+        <div class="line-name-jp">${meta.jp}</div>
+      </div>
+      <span class="delay-indicator">DELAY</span>`;
+
+    btn.addEventListener('click', () => {
+      if (activeLines.has(key)) {
+        activeLines.delete(key);
+        btn.classList.remove('active');
+      } else {
+        activeLines.add(key);
+        btn.classList.add('active');
+      }
+      refreshDisplay();
+    });
+
+    container.appendChild(btn);
+  });
+}
+
+function updateBtnDelayState(btn, key) {
+  const ti = trainInfo.find(t => getLineKey(t['odpt:railway'] || '') === key);
+  const delayed = ti && (
+    (ti['odpt:trainInformationText']?.en || '').toLowerCase().includes('delay') ||
+    (ti['odpt:trainInformationText']?.ja || '').includes('遅延')
+  );
+  btn.classList.toggle('has-delay', !!delayed);
+}
+
+function updateAllDelayBadges() {
+  document.querySelectorAll('.line-btn').forEach(btn => {
+    updateBtnDelayState(btn, btn.dataset.line);
+  });
+}
+
+let allActive = true;
+document.getElementById('toggle-all-btn').addEventListener('click', () => {
+  allActive = !allActive;
+  if (allActive) {
+    activeLines = new Set(Object.keys(LINE_META));
+    document.querySelectorAll('.line-btn').forEach(b => b.classList.add('active'));
+  } else {
+    activeLines.clear();
+    document.querySelectorAll('.line-btn').forEach(b => b.classList.remove('active'));
+  }
+  document.getElementById('toggle-all-btn').textContent = allActive ? 'ALL LINES' : 'NONE';
+  refreshDisplay();
+});
+
+/* ============================================================
+   LINE VISIBILITY (MapLibre layers)
+   ============================================================ */
+function updateLineVisibility() {
+  Object.keys(LINE_META).forEach(key => {
+    const id = 'lyr-line-' + key;
+    if (map.getLayer(id)) {
+      map.setLayoutProperty(id, 'visibility', activeLines.has(key) ? 'visible' : 'none');
+    }
+  });
+}
+
+function refreshDisplay() {
+  updateLineVisibility();
+  drawStations();
+  drawTrains();
+  updateStats();
+}
+
+/* ============================================================
+   STATS PANEL
+   ============================================================ */
+function updateStats() {
+  const visibleStations = stations.filter(s => {
+    const k = getLineKey(s['odpt:railway'] || '');
+    return k && activeLines.has(k);
+  });
+
+  const delayed = trainInfo.filter(ti => {
+    const en = ti['odpt:trainInformationText']?.en || '';
+    const ja = ti['odpt:trainInformationText']?.ja || '';
+    return en.toLowerCase().includes('delay') || ja.includes('遅延') || ja.includes('運転見合わせ');
+  });
+
+  const normal = trainInfo.length - delayed.length;
+
+  document.getElementById('stat-stations').textContent = visibleStations.length;
+  document.getElementById('stat-trains').textContent   = trainInfo.length;
+  document.getElementById('stat-delayed').textContent  = delayed.length;
+  document.getElementById('stat-normal').textContent   = normal;
+
+  const banner = document.getElementById('alert-banner');
+  if (delayed.length > 0) {
+    const lineNames = delayed
+      .map(ti => getLineKey(ti['odpt:railway'] || ''))
+      .filter(Boolean)
+      .join(', ');
+    banner.textContent = `⚠ DELAY: ${lineNames}`;
+    banner.classList.add('visible');
+    setTimeout(() => banner.classList.remove('visible'), 9000);
+  }
+}
+
+/* ============================================================
+   CLOCK
+   ============================================================ */
+function startClock() {
+  const el = document.getElementById('clock');
+  const tick = () => {
+    el.textContent = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
+/* ============================================================
+   LIVE REFRESH (every UPDATE_INTERVAL seconds)
+   ============================================================ */
+function startCountdown() {
+  countdown = UPDATE_INTERVAL;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(async () => {
+    countdown--;
+    document.getElementById('next-update').textContent = `NEXT UPDATE: ${countdown}s`;
+    if (countdown <= 0) {
+      clearInterval(countdownTimer);
+      await refreshLiveData();
+    }
+  }, 1000);
+}
+
+async function refreshLiveData() {
+  try {
+    trainInfo = await fetchAPI(
+      `${BASE}/odpt:TrainInformation?odpt:operator=odpt.Operator:TokyoMetro&acl:consumerKey=${API_KEY}`
+    );
+    refreshDisplay();
+    updateAllDelayBadges();
+  } catch { /* silent fail — keep old data */ }
+  startCountdown();
+}
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+async function main() {
+  await initMap();
+  setLoadingProgress(20, 'MAP INITIALIZED...');
+
+  await loadData();
+  setLoadingProgress(90, 'RENDERING LAYERS...');
+
+  drawLines();
+  drawStations();
+  buildLineFilters();
+  drawTrains();
+  updateStats();
+
+  setLoadingProgress(100, 'READY');
+  setTimeout(() => {
+    const lo = document.getElementById('loading');
+    lo.classList.add('hidden');
+    setTimeout(() => lo.style.display = 'none', 600);
+  }, 400);
+
+  startClock();
+  startCountdown();
+}
+
+main().catch(err => {
+  document.getElementById('loading-status').textContent = 'ERROR: ' + err.message;
+  document.getElementById('loading-bar').style.background = '#ff3b3b';
+});
+</script>
+</body>
+</html>
