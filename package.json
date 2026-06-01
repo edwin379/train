@@ -1,0 +1,19 @@
+
+{
+  "name": "toei-transit-map",
+  "version": "1.0.0",
+  "description": "Real-time Toei transit vehicle tracker",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "jszip": "^3.10.1",
+    "node-fetch": "^3.3.2",
+    "protobufjs": "^7.2.5"
+  }
+}

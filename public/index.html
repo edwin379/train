@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>都営 TOEI LIVE — Real-Time Transit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Share+Tech+Mono&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+ 
+<!-- LOADING -->
+<div id="loading">
+  <div class="loading-title">都営 TOEI</div>
+  <div class="loading-sub">Tokyo Metropolitan Bureau of Transportation</div>
+  <div class="loading-bar-wrap"><div class="loading-bar" id="loading-bar"></div></div>
+  <div class="loading-status" id="loading-status">INITIALIZING...</div>
+</div>
+ 
+<!-- MAP -->
+<div id="map"></div>
+ 
+<!-- HEADER -->
+<div id="header">
+  <div id="header-title">
+    <span class="jp">東京都交通局 リアルタイム監視</span>
+    <span class="en">TOEI LIVE</span>
+  </div>
+  <div id="live-badge" class="syncing"><div class="dot"></div><span id="live-badge-text">SYNCING</span></div>
+  <div id="clock">--:--:--</div>
+  <div id="next-update">NEXT UPDATE: --s</div>
+  <div id="train-count-badge">— TRAINS</div>
+</div>
+ 
+<!-- ALERT BANNER -->
+<div id="alert-banner">⚠ SERVICE ALERT</div>
+ 
+<!-- LINE FILTERS -->
+<div id="line-filters">
+  <button id="toggle-all-btn">● ALL LINES</button>
+</div>
+ 
+<!-- STATS -->
+<div id="stats-panel">
+  <div class="stat-row"><span class="stat-label">ACTIVE TRAINS</span><span class="stat-value" id="stat-trains">—</span></div>
+  <div class="stat-row"><span class="stat-label">ROUTES ACTIVE</span><span class="stat-value" id="stat-routes">—</span></div>
+  <div class="stat-row"><span class="stat-label">ALERTS</span><span class="stat-value danger" id="stat-alerts">—</span></div>
+  <div class="stat-row"><span class="stat-label">REFRESHED</span><span class="stat-value success" style="font-size:11px" id="stat-refresh">—</span></div>
+</div>
+ 
+<!-- INFO PANEL -->
+<div id="info-panel">
+  <button id="info-close">✕</button>
+  <div class="info-type" id="info-type">VEHICLE</div>
+  <div class="info-name" id="info-name">—</div>
+  <div class="info-sub"  id="info-sub">—</div>
+  <div class="info-divider"></div>
+  <div id="info-rows"></div>
+</div>
+ 
+<script src="app.js?v=25"></script>
+</body>
+</html>
