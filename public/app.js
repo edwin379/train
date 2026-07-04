@@ -279,6 +279,10 @@ function drawStations(stations) {
       .setLngLat([s.lng, s.lat])
       .addTo(map);
 
+    // Stations are added before trains, so trains naturally render ON TOP.
+    // We keep the station's CLICKABLE area large (see .station-marker-wrap in
+    // CSS) so its edges stick out around a parked train + delay ring and stay
+    // clickable, even though the train sits visually on top.
     wrap.addEventListener("click", e => {
       e.stopPropagation();
       showStationPanel(s, lineKey, color);
@@ -332,12 +336,13 @@ function updateTrainMarkers() {
 
     const ti    = trainInfoMap[v.routeId] || trainInfoMap[lineKey];
     const tiJa  = ti?.["odpt:trainInformationText"]?.ja || "";
-    const isDelay     = tiJa.includes("遅延") && !tiJa.includes("ありません");
+    const lineDelay   = tiJa.includes("遅延") && !tiJa.includes("ありません");
     const isSuspended = tiJa.includes("運転見合わせ");
-    // Always use the official line colour for the icon background.
-    // Only switch to red when there is a confirmed delay/suspension.
-    const lineColor = meta.color;
-    const color     = (isDelay || isSuspended) ? "#ff3b3b" : lineColor;
+    // Per-train delay (like Mini Tokyo 3D): 60s+ counts as late.
+    const trainLate   = (v.delaySec || 0) >= 60;
+    const isDelay     = lineDelay || trainLate;
+    // Icon keeps its LINE colour always. Delay is shown by a red ring instead.
+    const color       = meta.color;
 
     seen.add(v.vehicleId);
 
@@ -406,17 +411,18 @@ function updateTrainMarkers() {
           icon.style.background = color;
           icon.style.boxShadow  = `0 0 8px ${color}bb, 0 0 18px ${color}44`;
           icon.textContent      = meta.code;
-          icon.className        = "train-icon" + (isDelay||isSuspended?" delayed":"");
         }
+        // Toggle the red delay ring on the wrapper (keeps icon colour intact)
+        tm.el.classList.toggle("delayed-ring", isDelay || isSuspended);
         continue; // skip to next vehicle — marker is updated
       }
     }
     
     if (!trainMarkers[v.vehicleId]) {
       const wrap = document.createElement("div");
-      wrap.className = "train-marker-wrap";
+      wrap.className = "train-marker-wrap" + (isDelay||isSuspended?" delayed-ring":"");
       const icon = document.createElement("div");
-      icon.className = "train-icon" + (isDelay||isSuspended?" delayed":"");
+      icon.className = "train-icon";
       icon.style.background = color;
       icon.style.boxShadow  = `0 0 8px ${color}bb, 0 0 18px ${color}44`;
       icon.textContent = meta.code;
@@ -534,8 +540,44 @@ function showVehiclePanel(tm) {
   const tiEn   = ti?.["odpt:trainInformationText"]?.en || "";
   const isDelay= tiJa.includes("遅延") && !tiJa.includes("ありません");
   const isSusp = tiJa.includes("運転見合わせ");
-  const sClass = isSusp?"disruption":isDelay?"delay":"normal";
-  const sLabel = isSusp?"⛔ SUSPENDED":isDelay?"⚠ DELAYED":"✓ ON TIME";
+  const delaySec  = v.delaySec || 0;
+  const trainLate = delaySec >= 60;
+  const anyDelay  = isDelay || trainLate;
+  const sClass = isSusp?"disruption":anyDelay?"delay":"normal";
+  const sLabel = isSusp?"⛔ SUSPENDED":anyDelay?"⚠ DELAYED":"✓ ON TIME";
+  const delayText = delaySec > 0
+    ? (delaySec >= 60 ? `${Math.floor(delaySec/60)}分${delaySec%60}秒` : `${delaySec}秒`)
+    : "定刻 (on time)";
+
+  // Station name helper: turn a station ID into its Japanese name.
+  const staName = (id) => {
+    if (!id) return null;
+    const s = stationData[id];
+    if (s) return s.titleJa || s.titleEn;
+    // Fallback: last part of the ID (e.g. ...Oedo.Tochomae → Tochomae)
+    return id.split(".").pop();
+  };
+
+  const fromName = staName(v.fromStation);
+  const toName   = staName(v.toStation);
+
+  // Build the station status block:
+  //   - Moving (has a next station): 前駅 → 次駅
+  //   - Stopped (no next station): 停車中 at the current station
+  let stationHtml = "";
+  if (toName && fromName) {
+    // Moving between two stations
+    stationHtml = `
+      <div class="info-divider"></div>
+      <div class="info-row"><span class="info-key">前駅</span><span class="info-val">${fromName}</span></div>
+      <div class="info-row"><span class="info-key">次駅</span><span class="info-val" style="color:${color}">${toName}</span></div>`;
+  } else if (fromName) {
+    // Stopped at a station
+    stationHtml = `
+      <div class="info-divider"></div>
+      <div class="info-row"><span class="info-key">状態</span><span class="info-val" style="color:${color}">停車中</span></div>
+      <div class="info-row"><span class="info-key">停車駅</span><span class="info-val">${fromName}</span></div>`;
+  }
 
   setInfoPanel({
     type  : "▶ LIVE TRAIN",
@@ -547,13 +589,8 @@ function showVehiclePanel(tm) {
       <div class="info-row"><span class="info-key">LINE</span><span class="info-val" style="color:${color}">${meta.en}</span></div>
       <div class="info-row"><span class="info-key">VEHICLE</span><span class="info-val">${v.vehicleId}</span></div>
       <div class="info-row"><span class="info-key">TRIP</span><span class="info-val">${v.tripId||"—"}</span></div>
-      <div class="info-row"><span class="info-key">POS STATUS</span><span class="info-val">${STATUS_LABELS[v.currentStatus]||"—"}</span></div>
-      <div class="info-divider"></div>
-      <div class="info-row"><span class="info-key">LATITUDE</span><span class="info-val">${v.lat?.toFixed(5)}</span></div>
-      <div class="info-row"><span class="info-key">LONGITUDE</span><span class="info-val">${v.lng?.toFixed(5)}</span></div>
-      <div class="info-row"><span class="info-key">BEARING</span><span class="info-val">${v.bearing?Math.round(v.bearing)+"°":"—"}</span></div>
-      <div class="info-row"><span class="info-key">UPDATED</span><span class="info-val">${v.updatedAt}</span></div>
-      <div class="info-row"><span class="info-key">DATA AGE</span><span class="info-val ${v.ageSec>60?"warn":""}">${v.ageSec!=null?v.ageSec+"s ago":"—"}</span></div>
+      <div class="info-row"><span class="info-key">DELAY</span><span class="info-val ${trainLate?"danger":"success"}">${delayText}</span></div>
+      ${stationHtml}
       ${tiEn && !tiEn.includes("Normal") ? `<div class="info-divider"></div><div class="info-desc">${tiEn}</div>` : ""}
       ${tiJa ? `<div class="info-desc" style="margin-top:4px">${tiJa}</div>` : ""}
     `,
@@ -723,6 +760,24 @@ function updateSyncBadge() {
 function updateStats(lastUpdated) {
   const matched = allVehicles.filter(v => getLineKey(v.routeId));
   document.getElementById("stat-trains").textContent  = matched.length;
+
+  // Count trains that are individually late (60s+) OR on a line with a
+  // formal delay announcement — matches how the red rings are shown.
+  let delayed = 0;
+  for (const v of matched) {
+    const lineKey = getLineKey(v.routeId);
+    const ti   = trainInfoMap[v.routeId] || trainInfoMap[lineKey];
+    const tiJa = ti?.["odpt:trainInformationText"]?.ja || "";
+    const lineDelay = tiJa.includes("遅延") && !tiJa.includes("ありません");
+    const suspended = tiJa.includes("運転見合わせ");
+    if ((v.delaySec || 0) >= 60 || lineDelay || suspended) delayed++;
+  }
+  const delEl = document.getElementById("stat-delayed");
+  if (delEl) {
+    delEl.textContent = delayed;
+    delEl.className   = `stat-value ${delayed > 0 ? "danger" : "success"}`;
+  }
+
   document.getElementById("stat-alerts").textContent  = allAlerts.length;
   document.getElementById("stat-alerts").className    =
     `stat-value ${allAlerts.length > 0 ? "danger" : "success"}`;
@@ -774,6 +829,107 @@ async function main() {
 
   startAnimLoop();
   startClock();
+  setupSearch();
+  setupAboutModal();
+}
+
+function setupAboutModal() {
+  const btn     = document.getElementById("about-btn");
+  const overlay = document.getElementById("about-overlay");
+  const close   = document.getElementById("about-close");
+  if (!btn || !overlay || !close) return;
+  const open = () => overlay.classList.add("visible");
+  const hide = () => overlay.classList.remove("visible");
+  btn.addEventListener("click", open);
+  close.addEventListener("click", hide);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) hide(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+}
+
+function setupSearch() {
+  const input   = document.getElementById("search-input");
+  const results = document.getElementById("search-results");
+  if (!input || !results) return;
+  let activeIndex = -1, currentMatches = [];
+
+  function render(matches) {
+    currentMatches = matches; activeIndex = -1;
+    if (matches.length === 0) {
+      results.innerHTML = `<div class="search-no-results">該当なし / No stations found</div>`;
+      results.classList.add("visible"); return;
+    }
+    results.innerHTML = matches.map((s, i) => {
+      const meta = LINE_META[getLineKey(s.railway)] || {};
+      const color = meta.color || "#00b4ff";
+      return `<div class="search-result" data-idx="${i}">
+        <div class="search-result-dot" style="background:${color}"></div>
+        <div class="search-result-text">
+          <div class="search-result-name">${s.titleJa || s.titleEn} <span style="color:var(--text-dim);font-size:11px">${s.titleEn||""}</span></div>
+          <div class="search-result-line">${meta.en||""}</div>
+        </div></div>`;
+    }).join("");
+    results.classList.add("visible");
+    results.querySelectorAll(".search-result").forEach(el => {
+      el.addEventListener("click", () => selectStation(matches[+el.dataset.idx]));
+    });
+  }
+  function selectStation(s) {
+    map.flyTo({ center: [s.lng, s.lat], zoom: 15, speed: 1.2, essential: true });
+    input.value = s.titleJa || s.titleEn;
+    results.classList.remove("visible");
+    flashStation(s);
+    // Also open the station's info panel
+    const lineKey = getLineKey(s.railway);
+    const color   = (LINE_META[lineKey] || {}).color || "#00b4ff";
+    if (lineKey) showStationPanel(s, lineKey, color);
+  }
+  function doSearch(q) {
+    q = q.trim().toLowerCase();
+    if (!q) { results.classList.remove("visible"); return; }
+    const seen = new Set(), matches = [];
+    for (const id in stationData) {
+      const s = stationData[id];
+      if (!s.lat || !s.lng) continue;
+      if ((s.titleJa||"").toLowerCase().includes(q) || (s.titleEn||"").toLowerCase().includes(q)) {
+        const key = (s.titleJa||s.titleEn) + "|" + s.railway;
+        if (seen.has(key)) continue;
+        seen.add(key); matches.push(s);
+      }
+    }
+    matches.sort((a, b) => {
+      const aS = (a.titleEn||"").toLowerCase().startsWith(q) || (a.titleJa||"").startsWith(q);
+      const bS = (b.titleEn||"").toLowerCase().startsWith(q) || (b.titleJa||"").startsWith(q);
+      return aS && !bS ? -1 : !aS && bS ? 1 : 0;
+    });
+    render(matches.slice(0, 12));
+  }
+  input.addEventListener("input", () => doSearch(input.value));
+  input.addEventListener("focus", () => { if (input.value.trim()) doSearch(input.value); });
+  input.addEventListener("keydown", (e) => {
+    const items = results.querySelectorAll(".search-result");
+    if (e.key === "ArrowDown") { e.preventDefault(); activeIndex = Math.min(activeIndex+1, items.length-1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); activeIndex = Math.max(activeIndex-1, 0); }
+    else if (e.key === "Enter") {
+      if (activeIndex >= 0 && currentMatches[activeIndex]) selectStation(currentMatches[activeIndex]);
+      else if (currentMatches[0]) selectStation(currentMatches[0]);
+      return;
+    } else if (e.key === "Escape") { results.classList.remove("visible"); input.blur(); return; }
+    else return;
+    items.forEach((el, i) => el.classList.toggle("active", i === activeIndex));
+  });
+  document.addEventListener("click", (e) => {
+    if (!document.getElementById("search-box").contains(e.target)) results.classList.remove("visible");
+  });
+}
+
+let flashMarker = null;
+function flashStation(s) {
+  if (flashMarker) flashMarker.remove();
+  const el = document.createElement("div");
+  el.className = "search-flash";
+  flashMarker = new maplibregl.Marker({ element: el, anchor: "center" })
+    .setLngLat([s.lng, s.lat]).addTo(map);
+  setTimeout(() => { if (flashMarker) { flashMarker.remove(); flashMarker = null; } }, 3000);
 }
 
 main().catch(err => {

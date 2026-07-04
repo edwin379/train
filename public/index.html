@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
- 
+
 <!-- LOADING -->
 <div id="loading">
   <div class="loading-title">都営 TOEI</div>
@@ -20,10 +20,10 @@
   <div class="loading-bar-wrap"><div class="loading-bar" id="loading-bar"></div></div>
   <div class="loading-status" id="loading-status">INITIALIZING...</div>
 </div>
- 
+
 <!-- MAP -->
 <div id="map"></div>
- 
+
 <!-- HEADER -->
 <div id="header">
   <div id="header-title">
@@ -34,24 +34,32 @@
   <div id="clock">--:--:--</div>
   <div id="next-update">NEXT UPDATE: --s</div>
   <div id="train-count-badge">— TRAINS</div>
+  <button id="about-btn">ABOUT</button>
 </div>
- 
+
+<!-- SEARCH BAR -->
+<div id="search-box">
+  <input type="text" id="search-input" placeholder="🔍 駅を検索 / Search station..." autocomplete="off">
+  <div id="search-results"></div>
+</div>
+
 <!-- ALERT BANNER -->
 <div id="alert-banner">⚠ SERVICE ALERT</div>
- 
+
 <!-- LINE FILTERS -->
 <div id="line-filters">
   <button id="toggle-all-btn">● ALL LINES</button>
 </div>
- 
+
 <!-- STATS -->
 <div id="stats-panel">
   <div class="stat-row"><span class="stat-label">ACTIVE TRAINS</span><span class="stat-value" id="stat-trains">—</span></div>
+  <div class="stat-row"><span class="stat-label">DELAYED</span><span class="stat-value" id="stat-delayed">—</span></div>
   <div class="stat-row"><span class="stat-label">ROUTES ACTIVE</span><span class="stat-value" id="stat-routes">—</span></div>
   <div class="stat-row"><span class="stat-label">ALERTS</span><span class="stat-value danger" id="stat-alerts">—</span></div>
   <div class="stat-row"><span class="stat-label">REFRESHED</span><span class="stat-value success" style="font-size:11px" id="stat-refresh">—</span></div>
 </div>
- 
+
 <!-- INFO PANEL -->
 <div id="info-panel">
   <button id="info-close">✕</button>
@@ -61,7 +69,47 @@
   <div class="info-divider"></div>
   <div id="info-rows"></div>
 </div>
- 
-<script src="app.js?v=25"></script>
+
+<!-- ABOUT MODAL -->
+<div id="about-overlay">
+  <div id="about-modal">
+    <button id="about-close">✕</button>
+    <div class="about-header">
+      <div class="about-title">ABOUT</div>
+      <div class="about-subtitle">都営交通リアルタイム監視マップ — 制作メンバー</div>
+    </div>
+    <div class="about-members">
+      <div class="member-card">
+        <div class="member-photo"><img src="img/edwin.jpg" alt="Edwin"></div>
+        <div class="member-info">
+          <div class="member-name">Edwin Montella</div>
+          <div class="member-title">Gambler</div>
+          <div class="member-role"><span class="role-label">担当</span> 開発・プログラミング</div>
+          <div class="member-quote">工学部のエドウィンです。地図アプリの開発を担当しています。</div>
+        </div>
+      </div>
+      <div class="member-card">
+        <div class="member-photo"><img src="img/awano.jpg" alt="Awano"></div>
+        <div class="member-info">
+          <div class="member-name">粟野翔</div>
+          <div class="member-title">Geo Artist</div>
+          <div class="member-role"><span class="role-label">担当</span> デザイン</div>
+          <div class="member-quote">工学部の粟野です。ユーザーに寄り添ったデザインを考えていきたいです。</div>
+        </div>
+      </div>
+      <div class="member-card">
+        <div class="member-photo"><img src="img/kanazawa.jpg" alt="Kanazawa"></div>
+        <div class="member-info">
+          <div class="member-name">金澤一華</div>
+          <div class="member-title">Chief Pretty Officer</div>
+          <div class="member-role"><span class="role-label">担当</span> デザイン</div>
+          <div class="member-quote">情報をひと目で理解できるように見やすさと使いやすさを意識してデザインします！</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js?v=35"></script>
 </body>
 </html>

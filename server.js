@@ -17,9 +17,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.static(join(__dirname, "public")));
 
-// ODPT API key. On Render (or any host) set an env var ODPT_KEY in the
-// dashboard. The fallback lets it still run locally without setting anything.
-const KEY  = process.env.ODPT_KEY || "2swbs2ofcui4yan1ri19phbxes2r5gxdxhhxbomczfuayo6jobyrl1atiyyy68ym";
+const KEY  = "2swbs2ofcui4yan1ri19phbxes2r5gxdxhhxbomczfuayo6jobyrl1atiyyy68ym";
 const BASE = "https://api.odpt.org/api/v4";
 
 const FEEDS = {
@@ -417,13 +415,18 @@ async function refreshCache() {
         const fromSt = t["odpt:fromStation"];
         const toSt   = t["odpt:toStation"];
         const c = stationCoord[fromSt] || stationCoord[toSt];
-        if (rw && c) officialTrains.push({ lat: c.lat, lng: c.lng, railway: rw });
+        const delay = t["odpt:delay"] || 0;   // per-train delay in SECONDS
+        const dir   = t["odpt:railDirection"] || "";
+        if (rw && c) officialTrains.push({
+          lat: c.lat, lng: c.lng, railway: rw, delay,
+          fromStation: fromSt || "", toStation: toSt || "", direction: dir,
+        });
       }
     }
 
-    // For a GPS point, return the official railway of the nearest #7 train
+    // For a GPS point, return info about the nearest #7 train
     // (only if it's within ~1.2km — beyond that the match is unreliable).
-    function officialLineNear(lat, lng) {
+    function officialInfoNear(lat, lng) {
       let best = null, bestD = Infinity;
       for (const t of officialTrains) {
         const dlat = lat - t.lat;
@@ -432,9 +435,13 @@ async function refreshCache() {
         if (d < bestD) { bestD = d; best = t; }
       }
       // 0.00012 deg² ≈ (1.2km)² threshold
-      if (best && bestD < 0.00012) return best.railway;
-      return "";
+      if (best && bestD < 0.00012) return {
+        railway: best.railway, delay: best.delay || 0,
+        fromStation: best.fromStation, toStation: best.toStation, direction: best.direction,
+      };
+      return { railway: "", delay: 0, fromStation: "", toStation: "", direction: "" };
     }
+    function officialLineNear(lat, lng) { return officialInfoNear(lat, lng).railway; }
 
     // Build tripId → routeId from TripUpdates (only full Toei keys)
     const tripRouteMap = {};
@@ -469,8 +476,17 @@ async function refreshCache() {
       let lineSource = "";
 
       // Match this GPS vehicle to the nearest officially-located #7 train.
-      routeId = officialLineNear(lat, lng);
-      if (routeId) lineSource = "official";
+      const official = officialInfoNear(lat, lng);
+      let trainDelay = 0;   // seconds, from matched #7 train
+      let fromStation = "", toStation = "", railDirection = "";
+      routeId = official.railway;
+      if (routeId) {
+        lineSource = "official";
+        trainDelay = official.delay || 0;
+        fromStation = official.fromStation || "";
+        toStation   = official.toStation || "";
+        railDirection = official.direction || "";
+      }
 
       if (!routeId && tripId && staticTripRouteMap[tripId]) { routeId = staticTripRouteMap[tripId]; lineSource = "gtfs"; }
       if (!routeId) { routeId = inferRailway(vehicleId, tripId); if (routeId) lineSource = "infer"; }
@@ -528,6 +544,8 @@ async function refreshCache() {
         updatedAt    : ts ? new Date(ts*1000).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"}) : "—",
         currentStatus: Number(vp.current_status ?? 2),
         stopId, lineSource,
+        delaySec: trainDelay,   // per-train delay in seconds (from #7)
+        fromStation, toStation, railDirection,   // for 前駅/次駅/停車中 display
       });
     }
 
