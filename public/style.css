@@ -475,3 +475,23 @@ body::after {
   .member-card { flex-direction: column; text-align: center; gap: 12px; }
   .member-role .role-label { display: inline-block; margin-bottom: 4px; }
 }
+
+/* ── PWA safe-area (iPhone notch / home indicator when installed fullscreen) ── */
+@supports (padding: max(0px)) {
+  #header {
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+  #search-box {
+    top: max(14px, env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+  }
+  #stats-panel {
+    bottom: max(24px, env(safe-area-inset-bottom));
+    left: max(16px, env(safe-area-inset-left));
+  }
+  #line-filters {
+    left: max(16px, env(safe-area-inset-left));
+  }
+}
