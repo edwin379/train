@@ -340,10 +340,6 @@ body::after {
 .maplibregl-popup-tip { display: none !important; }
 .maplibregl-popup-close-button { color:var(--text-dim) !important; font-size:16px !important; top:6px !important; right:8px !important; }
 
-@media (max-width: 640px) {
-  #line-filters { display: none; }
-  #info-panel   { right:8px; width:calc(100vw - 16px); top:auto; bottom:80px; }
-}
 /* Station markers sit ABOVE train markers so you can still click a station
    even when a train icon is stopped on top of it. */
 /* Station markers sit ABOVE train markers so a station stays clickable even
@@ -471,7 +467,51 @@ body::after {
 }
 
 @media (max-width: 640px) {
-  #search-box { top: 56px; right: 8px; width: calc(100vw - 16px); }
+  /* ── HEADER: let it wrap cleanly and shrink, at the very top ── */
+  #header {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 12px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    background: linear-gradient(180deg, rgba(5,10,15,0.98) 60%, rgba(5,10,15,0) 100%);
+  }
+  #header-title .en { font-size: 22px; }
+  #header-title .jp { font-size: 8px; letter-spacing: 2px; }
+  #clock { font-size: 11px; }
+  #next-update { font-size: 9px; }
+  #train-count-badge { font-size: 9px; padding: 2px 6px; }
+  #about-btn { font-size: 9px; padding: 3px 9px; }
+  #live-badge { font-size: 10px; padding: 3px 8px; }
+
+  /* ── SEARCH BAR: full-width row BELOW the header, not overlapping ── */
+  #search-box {
+    position: fixed;
+    top: auto;                          /* released from the fixed 56px */
+    left: 8px; right: 8px;
+    width: auto;
+    /* Sit just under the header. The header can be ~2 rows tall on mobile,
+       so we place the search bar with a comfortable offset from the top. */
+    top: max(96px, calc(env(safe-area-inset-top) + 90px));
+    z-index: 160;
+  }
+  #search-input { font-size: 16px; }    /* 16px stops iOS auto-zoom on focus */
+
+  /* Sidebar hidden on mobile (too wide); info panel spans width */
+  #line-filters { display: none; }
+  #info-panel   { right:8px; left:8px; width:auto; top:auto; bottom:80px; }
+
+  /* Alert banner shouldn't collide with the search bar */
+  #alert-banner {
+    top: auto; bottom: 90px;
+    font-size: 10px; padding: 6px 14px;
+    max-width: calc(100vw - 24px); white-space: normal; text-align: center;
+  }
+
+  /* Stats panel a touch smaller so it doesn't dominate the screen */
+  #stats-panel { padding: 10px 12px; min-width: 150px; }
+  .stat-value { font-size: 14px; }
+
+  /* About modal cards stack vertically */
   .member-card { flex-direction: column; text-align: center; gap: 12px; }
   .member-role .role-label { display: inline-block; margin-bottom: 4px; }
 }
@@ -483,15 +523,20 @@ body::after {
     padding-left: max(20px, env(safe-area-inset-left));
     padding-right: max(20px, env(safe-area-inset-right));
   }
-  #search-box {
-    top: max(14px, env(safe-area-inset-top));
-    right: max(16px, env(safe-area-inset-right));
-  }
   #stats-panel {
     bottom: max(24px, env(safe-area-inset-bottom));
     left: max(16px, env(safe-area-inset-left));
   }
   #line-filters {
     left: max(16px, env(safe-area-inset-left));
+  }
+  /* Desktop only: keep the search box top-right with notch padding.
+     On mobile (<=640px) the search box is positioned by the mobile media
+     query above, so we don't override it here. */
+  @media (min-width: 641px) {
+    #search-box {
+      top: max(14px, env(safe-area-inset-top));
+      right: max(16px, env(safe-area-inset-right));
+    }
   }
 }
