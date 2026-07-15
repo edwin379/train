@@ -1283,37 +1283,86 @@ async function showCommuteStationPanel(s, kind) {
 
     const now = tokyoNowMinutes();
     const lineDelaySec = currentLineDelaySec(lineKey);
-    let deps = [];
+    const todayCal = todayCalendarKey();   // "Weekday" or "SaturdayHoliday"
+
+    // Group departures by DIRECTION, filtered to today's calendar only.
+    const byDir = {};
     for (const tt of res.timetables) {
       if (getLineKey(tt.railway) !== lineKey) continue;
+      // Match today's calendar (the feed has both Weekday and SaturdayHoliday).
+      const cal = tt.calendar || "";
+      const isToday = todayCal === "SaturdayHoliday"
+        ? (cal.includes("Saturday") || cal.includes("Holiday"))
+        : cal.includes("Weekday");
+      if (!isToday) continue;
+
+      const dir = tt.direction || "";
+      if (!byDir[dir]) byDir[dir] = [];
       for (const d of tt.departures) {
         const mins = hmToMinutes(d.time);
         if (mins == null) continue;
-        deps.push({ ...d, mins, direction: tt.direction });
+        byDir[dir].push({ ...d, mins });
       }
     }
-    deps = deps.filter(d => d.mins >= now).sort((a,b) => a.mins - b.mins).slice(0, 5);
 
-    if (deps.length === 0) {
-      list.innerHTML = `<div class="commute-tt-loading">\u672C\u65E5\u306E\u6B8B\u308A\u767A\u8ECA\u306A\u3057 / No more today</div>`;
+    const dirs = Object.keys(byDir);
+    if (dirs.length === 0) {
+      list.innerHTML = `<div class="commute-tt-loading">\u6642\u523B\u8868\u30C7\u30FC\u30BF\u304C\u3042\u308A\u307E\u305B\u3093 / No timetable</div>`;
       return;
     }
 
-    list.innerHTML = deps.map(d => {
-      const destName = (stationData[d.dest]?.titleJa) || (d.dest ? d.dest.split(".").pop() : "");
-      const late = lineDelaySec >= 60;
-      const statusText = late ? `+${Math.round(lineDelaySec/60)}\u5206\u9045\u308C` : "\u5B9A\u523B";
-      const statusColor = late ? "#ff3b3b" : "#00e676";
-      return `<div class="commute-tt-row">
-        <span class="commute-tt-time">${d.time}</span>
-        <span class="commute-tt-status" style="color:${statusColor}">\uFF08${statusText}\uFF09</span>
-        <span class="commute-tt-dest">${destName ? destName+"\u884C" : ""}</span>
-      </div>`;
-    }).join("");
+    const late = lineDelaySec >= 60;
+    const statusText = late ? `+${Math.round(lineDelaySec/60)}\u5206\u9045\u308C` : "\u5B9A\u523B";
+    const statusColor = late ? "#ff3b3b" : "#00e676";
+
+    let html = "";
+    for (const dir of dirs) {
+      // Next 5 upcoming departures in this direction.
+      const upcoming = byDir[dir]
+        .filter(d => d.mins >= now)
+        .sort((a,b) => a.mins - b.mins)
+        .slice(0, 5);
+      if (upcoming.length === 0) continue;
+
+      const dirName = directionLabel(dir);
+      html += `<div class="commute-tt-dir">${dirName}</div>`;
+      html += upcoming.map(d => {
+        const destName = (stationData[d.dest]?.titleJa) || (d.dest ? d.dest.split(".").pop() : "");
+        return `<div class="commute-tt-row">
+          <span class="commute-tt-time">${d.time}</span>
+          <span class="commute-tt-status" style="color:${statusColor}">\uFF08${statusText}\uFF09</span>
+          <span class="commute-tt-dest">${destName ? destName+"\u884C" : ""}</span>
+        </div>`;
+      }).join("");
+    }
+
+    list.innerHTML = html || `<div class="commute-tt-loading">\u672C\u65E5\u306E\u6B8B\u308A\u767A\u8ECA\u306A\u3057 / No more today</div>`;
   } catch (e) {
     const list = document.getElementById("commute-tt-list");
     if (list) list.innerHTML = `<div class="commute-tt-loading">\u8AAD\u307F\u8FBC\u307F\u30A8\u30E9\u30FC / Error</div>`;
   }
+}
+
+// Today's calendar key in Tokyo: "Weekday" or "SaturdayHoliday".
+function todayCalendarKey() {
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+  const day = now.getDay(); // 0 Sun .. 6 Sat
+  return (day === 0 || day === 6) ? "SaturdayHoliday" : "Weekday";
+}
+
+// Human-readable direction label from an ODPT railDirection id.
+function directionLabel(dir) {
+  if (!dir) return "\u767A\u8ECA / Departures";
+  const tail = dir.split(".").pop();  // e.g. "Eastbound"
+  const map = {
+    Eastbound:  "\u6771\u65B9\u9762 (Eastbound)",
+    Westbound:  "\u897F\u65B9\u9762 (Westbound)",
+    Northbound: "\u5317\u65B9\u9762 (Northbound)",
+    Southbound: "\u5357\u65B9\u9762 (Southbound)",
+    Inbound:    "\u4E0A\u308A (Inbound)",
+    Outbound:   "\u4E0B\u308A (Outbound)",
+  };
+  return map[tail] || tail;
 }
 
 function tokyoNowMinutes() {

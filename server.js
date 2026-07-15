@@ -649,6 +649,22 @@ app.get("/api/station-timetable", async (req, res) => {
     res.json({ error: e.message, station });
   }
 });
+app.get("/api/station-timetable-sample", async (req, res) => {
+  try {
+    // Grab a sample for Shinjuku on the Shinjuku line (busy, always has data)
+    const station = req.query.station || "odpt.Station:Toei.Shinjuku.Shinjuku";
+    const url = `${BASE}/odpt:StationTimetable?odpt:station=${station}&acl:consumerKey=${KEY}`;
+    const data = await fetchJson(url);
+    res.json({
+      station,
+      total: Array.isArray(data) ? data.length : 0,
+      sample: Array.isArray(data) ? data.slice(0, 1) : data,
+    });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 app.get("/api/debug",         (_,res) => {
   const dist = {};
   cache.vehicles.forEach(v => { dist[v.routeId||"?"] = (dist[v.routeId||"?"]||0)+1; });

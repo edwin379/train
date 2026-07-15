@@ -721,3 +721,11 @@ body::after {
   font-family: var(--body); font-size: 11px; color: var(--text-dim);
   margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* Direction header inside the commute timetable */
+.commute-tt-dir {
+  font-family: var(--mono); font-size: 10px; color: var(--accent);
+  letter-spacing: 1px; margin: 12px 0 4px; padding-bottom: 3px;
+  border-bottom: 1px solid rgba(0,180,255,0.2);
+}
+.commute-tt-dir:first-child { margin-top: 0; }
