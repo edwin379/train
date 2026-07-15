@@ -481,6 +481,7 @@ body::after {
   #next-update { font-size: 9px; }
   #train-count-badge { font-size: 9px; padding: 2px 6px; }
   #about-btn { font-size: 9px; padding: 3px 9px; }
+  #commute-btn { font-size: 9px; padding: 3px 8px; }
   #live-badge { font-size: 10px; padding: 3px 8px; }
 
   /* ── SEARCH BAR: full-width row BELOW the header, not overlapping ── */
@@ -539,4 +540,132 @@ body::after {
       right: max(16px, env(safe-area-inset-right));
     }
   }
+}
+
+/* ── COMMUTE BUTTON ── */
+#commute-btn {
+  font-family: var(--mono); font-size: 10px; color: var(--warn);
+  letter-spacing: 1px; background: rgba(255,170,0,0.08);
+  border: 1px solid rgba(255,170,0,0.35); border-radius: 3px;
+  padding: 4px 12px; cursor: pointer; pointer-events: auto;
+  transition: all 0.2s; white-space: nowrap;
+}
+#commute-btn:hover { background: rgba(255,170,0,0.22); color: #fff; }
+
+/* ── COMMUTE MODAL ── */
+#commute-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(2,6,12,0.82); backdrop-filter: blur(6px);
+  display: none; align-items: center; justify-content: center;
+  animation: about-fade 0.25s ease;
+}
+#commute-overlay.visible { display: flex; }
+#commute-modal {
+  position: relative; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 10px; padding: 26px 26px 22px;
+  box-shadow: 0 20px 70px rgba(0,0,0,0.7), 0 0 60px rgba(0,180,255,0.08);
+  animation: about-rise 0.3s ease;
+}
+#commute-modal::-webkit-scrollbar { width: 4px; }
+#commute-modal::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 2px; }
+#commute-close {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none; color: var(--text-dim);
+  font-size: 18px; font-family: var(--mono); cursor: pointer; transition: color 0.15s;
+}
+#commute-close:hover { color: #fff; }
+.commute-header { margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--panel-border); }
+.commute-title {
+  font-family: var(--display); font-size: 28px; letter-spacing: 3px;
+  color: #fff; line-height: 1; text-shadow: 0 0 30px rgba(255,170,0,0.4);
+}
+.commute-subtitle { font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 1px; margin-top: 8px; }
+
+/* ── Builder: legs ── */
+.commute-leg {
+  background: rgba(8,16,26,0.6); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 14px; margin-bottom: 10px;
+}
+.commute-leg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.commute-leg-num { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 2px; }
+.commute-leg-remove {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 13px; font-family: var(--mono); transition: color 0.15s;
+}
+.commute-leg-remove:hover { color: var(--danger); }
+.commute-select {
+  width: 100%; background: rgba(5,10,15,0.9);
+  border: 1px solid var(--panel-border); border-radius: 5px;
+  padding: 8px 10px; font-family: var(--body); font-size: 13px;
+  color: var(--text); margin-bottom: 8px; cursor: pointer;
+}
+.commute-select:focus { outline: none; border-color: rgba(0,180,255,0.6); }
+.commute-select:disabled { opacity: 0.4; cursor: not-allowed; }
+.commute-leg-stations { display: flex; align-items: center; gap: 8px; }
+.commute-leg-stations .commute-select { margin-bottom: 0; flex: 1; }
+.commute-arrow { color: var(--text-dim); font-size: 14px; flex-shrink: 0; }
+.commute-transfer-mark {
+  text-align: center; margin: 4px 0 10px;
+  font-family: var(--mono); font-size: 10px; color: var(--warn); letter-spacing: 1px;
+}
+
+/* ── Buttons ── */
+.commute-btn-primary, .commute-btn-secondary, .commute-btn-danger {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 1px;
+  border-radius: 5px; padding: 9px 14px; cursor: pointer;
+  transition: all 0.2s; border: 1px solid;
+}
+.commute-btn-primary {
+  color: #050a0f; background: var(--accent); border-color: var(--accent); font-weight: 700;
+}
+.commute-btn-primary:hover { background: #33c4ff; }
+.commute-btn-secondary {
+  color: var(--accent); background: rgba(0,180,255,0.08); border-color: rgba(0,180,255,0.3);
+}
+.commute-btn-secondary:hover { background: rgba(0,180,255,0.2); }
+.commute-btn-danger {
+  color: var(--danger); background: rgba(255,59,59,0.08); border-color: rgba(255,59,59,0.3);
+}
+.commute-btn-danger:hover { background: rgba(255,59,59,0.2); }
+
+#commute-add-leg { width: 100%; margin-bottom: 14px; }
+.commute-builder-actions { display: flex; gap: 8px; }
+.commute-builder-actions .commute-btn-primary { flex: 1; }
+.commute-hint {
+  margin-top: 12px; font-family: var(--body); font-size: 10px;
+  color: var(--text-dim); line-height: 1.6;
+}
+
+/* ── Saved summary ── */
+.commute-route-display { margin-bottom: 18px; }
+.commute-route-leg {
+  background: rgba(8,16,26,0.6); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 12px 14px; margin-bottom: 4px;
+}
+.commute-route-line { display: flex; align-items: center; gap: 8px; padding-left: 8px; border-left: 3px solid; margin-bottom: 6px; }
+.commute-route-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.commute-route-name { font-size: 13px; font-weight: 500; color: #fff; }
+.commute-route-stations { font-family: var(--body); font-size: 13px; color: var(--text); padding-left: 11px; }
+.commute-route-transfer {
+  text-align: center; margin: 4px 0; font-family: var(--mono);
+  font-size: 10px; color: var(--warn); letter-spacing: 1px;
+}
+.commute-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.commute-actions .commute-btn-primary { flex: 1; min-width: 130px; }
+
+/* ── Commute highlight markers on the map ── */
+.commute-highlight { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; position: relative; }
+.commute-hl-ring {
+  position: absolute; width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid #fff; box-shadow: 0 0 12px rgba(255,255,255,0.6);
+  animation: commute-pulse 1.8s infinite;
+}
+.commute-highlight-home .commute-hl-ring { border-color: #00e676; box-shadow: 0 0 14px rgba(0,230,118,0.8); }
+.commute-highlight-work .commute-hl-ring { border-color: #00b4ff; box-shadow: 0 0 14px rgba(0,180,255,0.8); }
+.commute-highlight-transfer .commute-hl-ring { border-color: var(--warn); box-shadow: 0 0 14px rgba(255,170,0,0.8); }
+.commute-hl-label { font-size: 15px; z-index: 2; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); }
+@keyframes commute-pulse {
+  0%,100% { transform: scale(1); opacity: 1; }
+  50%     { transform: scale(1.15); opacity: 0.7; }
 }

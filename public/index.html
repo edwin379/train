@@ -45,6 +45,7 @@
   <div id="clock">--:--:--</div>
   <div id="next-update">NEXT UPDATE: --s</div>
   <div id="train-count-badge">— TRAINS</div>
+  <button id="commute-btn">🚊 マイ通勤</button>
   <button id="about-btn">ABOUT</button>
 </div>
 
@@ -79,6 +80,38 @@
   <div class="info-sub"  id="info-sub">—</div>
   <div class="info-divider"></div>
   <div id="info-rows"></div>
+</div>
+
+<!-- COMMUTE MODAL -->
+<div id="commute-overlay">
+  <div id="commute-modal">
+    <button id="commute-close">✕</button>
+    <div class="commute-header">
+      <div class="commute-title">マイ通勤ルート</div>
+      <div class="commute-subtitle">MY COMMUTE — 自分の通勤ルートを保存</div>
+    </div>
+
+    <!-- Saved commute summary (shown when a commute exists) -->
+    <div id="commute-saved" style="display:none">
+      <div class="commute-route-display" id="commute-route-display"></div>
+      <div class="commute-actions">
+        <button id="commute-show-btn" class="commute-btn-primary">地図で表示 / Show on map</button>
+        <button id="commute-edit-btn" class="commute-btn-secondary">編集 / Edit</button>
+        <button id="commute-clear-btn" class="commute-btn-danger">削除 / Delete</button>
+      </div>
+    </div>
+
+    <!-- Builder (shown when creating/editing) -->
+    <div id="commute-builder">
+      <div id="commute-legs"></div>
+      <button id="commute-add-leg" class="commute-btn-secondary">＋ 乗り換えを追加 / Add transfer</button>
+      <div class="commute-builder-actions">
+        <button id="commute-save-btn" class="commute-btn-primary">保存 / Save</button>
+        <button id="commute-cancel-btn" class="commute-btn-secondary" style="display:none">キャンセル</button>
+      </div>
+      <div class="commute-hint">各区間で「路線・出発駅・到着駅」を選びます。乗り換えがある場合は「乗り換えを追加」で区間を増やしてください。</div>
+    </div>
+  </div>
 </div>
 
 <!-- ABOUT MODAL -->
@@ -130,7 +163,7 @@
   </div>
 </div>
 
-<script src="app.js?v=35"></script>
+<script src="app.js?v=36"></script>
 <script>
   // Register the service worker to make the app installable (PWA).
   if ("serviceWorker" in navigator) {

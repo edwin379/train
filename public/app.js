@@ -831,6 +831,8 @@ async function main() {
   startClock();
   setupSearch();
   setupAboutModal();
+  setupCommute();
+  autoApplyCommuteOnLoad();
 }
 
 function setupAboutModal() {
@@ -920,6 +922,282 @@ function setupSearch() {
   document.addEventListener("click", (e) => {
     if (!document.getElementById("search-box").contains(e.target)) results.classList.remove("visible");
   });
+}
+
+/* ================================================================
+   MY COMMUTE — manual multi-leg route saved to localStorage
+================================================================ */
+const COMMUTE_KEY = "toei_commute_v1";
+let commuteMarkers = [];   // highlight markers for saved commute stations
+
+// Load / save to localStorage
+function loadCommute() {
+  try {
+    const raw = localStorage.getItem(COMMUTE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveCommute(commute) {
+  try { localStorage.setItem(COMMUTE_KEY, JSON.stringify(commute)); } catch {}
+}
+function clearCommuteStorage() {
+  try { localStorage.removeItem(COMMUTE_KEY); } catch {}
+}
+
+// Build list of stations for a given line (sorted by order), for the dropdowns.
+function stationsForLine(lineKey) {
+  const out = [];
+  for (const id in stationData) {
+    const s = stationData[id];
+    if (getLineKey(s.railway) === lineKey) out.push(s);
+  }
+  out.sort((a,b) => (a.order ?? 999) - (b.order ?? 999));
+  return out;
+}
+
+function setupCommute() {
+  const btn      = document.getElementById("commute-btn");
+  const overlay  = document.getElementById("commute-overlay");
+  const close    = document.getElementById("commute-close");
+  if (!btn || !overlay || !close) return;
+
+  const savedBox = document.getElementById("commute-saved");
+  const builder  = document.getElementById("commute-builder");
+  const legsWrap = document.getElementById("commute-legs");
+  const routeDisp= document.getElementById("commute-route-display");
+
+  let editingLegs = [];   // working copy while building
+
+  const open  = () => { refreshView(); overlay.classList.add("visible"); };
+  const hide  = () => overlay.classList.remove("visible");
+  btn.addEventListener("click", open);
+  close.addEventListener("click", hide);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) hide(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+
+  // Decide whether to show the saved summary or the builder.
+  function refreshView() {
+    const commute = loadCommute();
+    if (commute && commute.legs && commute.legs.length) {
+      savedBox.style.display = "block";
+      builder.style.display  = "none";
+      renderSavedSummary(commute);
+    } else {
+      savedBox.style.display = "none";
+      builder.style.display  = "block";
+      if (editingLegs.length === 0) editingLegs = [ blankLeg() ];
+      renderBuilder();
+    }
+  }
+
+  function blankLeg() { return { line: "", from: "", to: "" }; }
+
+  // ---- Builder rendering ----
+  function renderBuilder() {
+    legsWrap.innerHTML = "";
+    editingLegs.forEach((leg, i) => {
+      const legEl = document.createElement("div");
+      legEl.className = "commute-leg";
+
+      const lineOptions = Object.entries(LINE_META)
+        .map(([id, m]) => `<option value="${id}" ${leg.line===id?"selected":""}>${m.en} / ${m.jp}</option>`)
+        .join("");
+
+      const fromStations = leg.line ? stationsForLine(leg.line) : [];
+      const toStations   = leg.line ? stationsForLine(leg.line) : [];
+      const fromOptions = fromStations
+        .map(s => `<option value="${s.id}" ${leg.from===s.id?"selected":""}>${s.titleJa||s.titleEn}</option>`).join("");
+      const toOptions = toStations
+        .map(s => `<option value="${s.id}" ${leg.to===s.id?"selected":""}>${s.titleJa||s.titleEn}</option>`).join("");
+
+      legEl.innerHTML = `
+        <div class="commute-leg-head">
+          <span class="commute-leg-num">区間 ${i+1}</span>
+          ${editingLegs.length > 1 ? `<button class="commute-leg-remove" data-i="${i}">✕</button>` : ""}
+        </div>
+        <select class="commute-select commute-line" data-i="${i}">
+          <option value="">路線を選択 / Select line</option>
+          ${lineOptions}
+        </select>
+        <div class="commute-leg-stations">
+          <select class="commute-select commute-from" data-i="${i}" ${!leg.line?"disabled":""}>
+            <option value="">出発駅 / From</option>${fromOptions}
+          </select>
+          <span class="commute-arrow">→</span>
+          <select class="commute-select commute-to" data-i="${i}" ${!leg.line?"disabled":""}>
+            <option value="">到着駅 / To</option>${toOptions}
+          </select>
+        </div>`;
+      legsWrap.appendChild(legEl);
+
+      if (i < editingLegs.length - 1) {
+        const tr = document.createElement("div");
+        tr.className = "commute-transfer-mark";
+        tr.innerHTML = `<span>🔄 乗り換え / Transfer</span>`;
+        legsWrap.appendChild(tr);
+      }
+    });
+
+    // Wire up the selects
+    legsWrap.querySelectorAll(".commute-line").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const i = +e.target.dataset.i;
+        editingLegs[i].line = e.target.value;
+        editingLegs[i].from = "";
+        editingLegs[i].to   = "";
+        renderBuilder();
+      });
+    });
+    legsWrap.querySelectorAll(".commute-from").forEach(sel => {
+      sel.addEventListener("change", (e) => { editingLegs[+e.target.dataset.i].from = e.target.value; });
+    });
+    legsWrap.querySelectorAll(".commute-to").forEach(sel => {
+      sel.addEventListener("change", (e) => { editingLegs[+e.target.dataset.i].to = e.target.value; });
+    });
+    legsWrap.querySelectorAll(".commute-leg-remove").forEach(b => {
+      b.addEventListener("click", (e) => {
+        editingLegs.splice(+e.target.dataset.i, 1);
+        renderBuilder();
+      });
+    });
+  }
+
+  // ---- Saved summary rendering ----
+  function renderSavedSummary(commute) {
+    const parts = commute.legs.map((leg, i) => {
+      const m = LINE_META[leg.line] || {};
+      const fromN = (stationData[leg.from]?.titleJa) || staTail(leg.from);
+      const toN   = (stationData[leg.to]?.titleJa)   || staTail(leg.to);
+      return `
+        <div class="commute-route-leg">
+          <div class="commute-route-line" style="border-color:${m.color}">
+            <span class="commute-route-dot" style="background:${m.color}"></span>
+            <span class="commute-route-name">${m.jp||m.en||""}</span>
+          </div>
+          <div class="commute-route-stations">${fromN} <span style="color:${m.color}">→</span> ${toN}</div>
+        </div>
+        ${i < commute.legs.length-1 ? `<div class="commute-route-transfer">🔄 乗り換え</div>` : ""}`;
+    }).join("");
+    routeDisp.innerHTML = parts;
+  }
+
+  function staTail(id){ return id ? id.split(".").pop() : "—"; }
+
+  // ---- Buttons ----
+  document.getElementById("commute-add-leg").addEventListener("click", () => {
+    // New leg pre-fills its "from" with the previous leg's "to" (transfer point)
+    const prev = editingLegs[editingLegs.length-1];
+    const nl = blankLeg();
+    if (prev && prev.to) nl.from = ""; // user picks line first; from set after line chosen
+    editingLegs.push(nl);
+    renderBuilder();
+  });
+
+  document.getElementById("commute-save-btn").addEventListener("click", () => {
+    // Validate: every leg needs line + from + to
+    const valid = editingLegs.filter(l => l.line && l.from && l.to);
+    if (valid.length === 0) {
+      alert("少なくとも1区間（路線・出発駅・到着駅）を入力してください。");
+      return;
+    }
+    saveCommute({ legs: valid, savedAt: Date.now() });
+    editingLegs = [];
+    refreshView();
+    applyCommute();   // immediately apply to the map
+  });
+
+  document.getElementById("commute-cancel-btn").addEventListener("click", () => {
+    editingLegs = [];
+    refreshView();
+  });
+
+  document.getElementById("commute-edit-btn").addEventListener("click", () => {
+    const commute = loadCommute();
+    editingLegs = commute ? commute.legs.map(l => ({...l})) : [ blankLeg() ];
+    savedBox.style.display = "none";
+    builder.style.display  = "block";
+    document.getElementById("commute-cancel-btn").style.display = "";
+    renderBuilder();
+  });
+
+  document.getElementById("commute-clear-btn").addEventListener("click", () => {
+    if (confirm("保存した通勤ルートを削除しますか？")) {
+      clearCommuteStorage();
+      clearCommuteHighlights();
+      editingLegs = [];
+      refreshView();
+    }
+  });
+
+  document.getElementById("commute-show-btn").addEventListener("click", () => {
+    hide();
+    applyCommute();
+  });
+}
+
+// Apply the saved commute to the map: filter to its lines + highlight its stations.
+function applyCommute() {
+  const commute = loadCommute();
+  if (!commute || !commute.legs || !commute.legs.length) return;
+
+  // 1. Filter lines to only those in the commute
+  const commuteLines = new Set(commute.legs.map(l => l.line));
+  activeLines = new Set(commuteLines);
+  document.querySelectorAll(".line-btn").forEach(b => {
+    const id = b.dataset.lid;
+    b.classList.toggle("active", commuteLines.has(id));
+  });
+  updateLineVis();
+  updateToggleBtn();
+
+  // 2. Highlight the commute stations and fit the map to them
+  clearCommuteHighlights();
+  const pts = [];
+  commute.legs.forEach((leg, li) => {
+    [leg.from, leg.to].forEach((sid, idx) => {
+      const s = stationData[sid];
+      if (!s) return;
+      pts.push([s.lng, s.lat]);
+      // Mark: home = first station of first leg, work = last of last leg
+      const isHome = li===0 && idx===0;
+      const isWork = li===commute.legs.length-1 && idx===1;
+      const kind = isHome ? "home" : isWork ? "work" : "transfer";
+      addCommuteHighlight(s, kind);
+    });
+  });
+
+  // Fit map to the commute
+  if (pts.length >= 2) {
+    const lngs = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
+    const bounds = [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]];
+    map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 1000 });
+  } else if (pts.length === 1) {
+    map.flyTo({ center: pts[0], zoom: 14 });
+  }
+}
+
+function addCommuteHighlight(s, kind) {
+  const el = document.createElement("div");
+  el.className = "commute-highlight commute-highlight-" + kind;
+  const label = kind==="home" ? "🏠" : kind==="work" ? "🏢" : "🔄";
+  el.innerHTML = `<div class="commute-hl-ring"></div><div class="commute-hl-label">${label}</div>`;
+  const marker = new maplibregl.Marker({ element: el, anchor: "center" })
+    .setLngLat([s.lng, s.lat]).addTo(map);
+  marker.getElement().style.zIndex = "6";
+  commuteMarkers.push(marker);
+}
+
+function clearCommuteHighlights() {
+  commuteMarkers.forEach(m => m.remove());
+  commuteMarkers = [];
+}
+
+// On startup, if a commute is saved, apply it automatically.
+function autoApplyCommuteOnLoad() {
+  const commute = loadCommute();
+  if (commute && commute.legs && commute.legs.length) {
+    applyCommute();
+  }
 }
 
 let flashMarker = null;
