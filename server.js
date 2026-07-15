@@ -651,6 +651,83 @@ app.get("/api/station-timetable", async (req, res) => {
     res.json({ error: e.message, station });
   }
 });
+// Journey lookup — next train from "from" to "to" on a line, departing at or
+// after a given time. Uses the TrainTimetable feed (#6), cached per line for
+// an hour. Returns { depTime, arrTime } (HH:MM) or { error }.
+const trainTtCache = {};   // `${railway}|${calendar}` → { data, fetchedAt }
+
+function parseHMsrv(hm) {
+  if (!hm || !hm.includes(":")) return null;
+  const [h, m] = hm.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+function todayCalendarSrv() {
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+  const day = now.getDay();
+  return (day === 0 || day === 6) ? "odpt.Calendar:SaturdayHoliday" : "odpt.Calendar:Weekday";
+}
+
+app.get("/api/journey", async (req, res) => {
+  const { railway, from, to } = req.query;
+  const after = parseInt(req.query.after, 10);   // minutes since midnight
+  if (!railway || !from || !to || isNaN(after)) {
+    return res.json({ error: "need railway, from, to, after(minutes)" });
+  }
+  try {
+    const cal = todayCalendarSrv();
+    const cacheKey = `${railway}|${cal}`;
+    let tts = trainTtCache[cacheKey];
+    if (!tts || (Date.now() - tts.fetchedAt) > 3600000) {
+      const url = `${BASE}/odpt:TrainTimetable?odpt:railway=${railway}`
+        + `&odpt:calendar=${cal}&acl:consumerKey=${KEY}`;
+      const data = await fetchJson(url);
+      const slim = (Array.isArray(data) ? data : []).map(t => ({
+        stops: (t["odpt:trainTimetableObject"] || []).map(s => ({
+          dep  : s["odpt:departureTime"] || null,
+          arr  : s["odpt:arrivalTime"]   || null,
+          depSt: s["odpt:departureStation"] || null,
+          arrSt: s["odpt:arrivalStation"]   || null,
+        })),
+      }));
+      tts = trainTtCache[cacheKey] = { data: slim, fetchedAt: Date.now() };
+    }
+
+    // Find the train with the EARLIEST departure from "from" (>= after) that
+    // later stops at "to". Return its dep + arr times.
+    let best = null;
+    for (const t of tts.data) {
+      const stops = t.stops;
+      for (let i = 0; i < stops.length; i++) {
+        const st = stops[i];
+        if ((st.depSt === from || st.arrSt === from) && st.dep) {
+          const depMins = parseHMsrv(st.dep);
+          if (depMins == null || depMins < after) continue;
+          // look for "to" later in this train's stops
+          for (let j = i + 1; j < stops.length; j++) {
+            const st2 = stops[j];
+            if (st2.arrSt === to || st2.depSt === to) {
+              const arrTime = st2.arr || st2.dep;
+              const arrMins = parseHMsrv(arrTime);
+              if (arrMins == null) break;
+              if (!best || depMins < best.depMins) {
+                best = { depTime: st.dep, depMins, arrTime, arrMins };
+              }
+              break;
+            }
+          }
+          break;   // only the first matching stop per train
+        }
+      }
+    }
+
+    if (!best) return res.json({ error: "no train found", railway, from, to, after });
+    res.json({ depTime: best.depTime, depMins: best.depMins, arrTime: best.arrTime, arrMins: best.arrMins });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 app.get("/api/station-timetable-sample", async (req, res) => {
   try {
     // Grab a sample for Shinjuku on the Shinjuku line (busy, always has data)

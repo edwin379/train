@@ -991,7 +991,7 @@ function setupCommute() {
     }
   }
 
-  function blankLeg() { return { line: "", from: "", to: "" }; }
+  function blankLeg() { return { line: "", from: "", to: "", xferMin: 5 }; }
 
   // ---- Builder rendering ----
   function renderBuilder() {
@@ -1032,9 +1032,17 @@ function setupCommute() {
       legsWrap.appendChild(legEl);
 
       if (i < editingLegs.length - 1) {
+        const nextLeg = editingLegs[i+1];
         const tr = document.createElement("div");
         tr.className = "commute-transfer-mark";
-        tr.innerHTML = `<span>🔄 乗り換え / Transfer</span>`;
+        tr.innerHTML = `
+          <div class="commute-transfer-row">
+            <span>🔄 乗り換え / Transfer</span>
+            <span class="commute-transfer-time">
+              徒歩 <input type="number" class="commute-xfer-input" data-i="${i+1}"
+                     min="0" max="30" value="${nextLeg.xferMin ?? 5}"> 分
+            </span>
+          </div>`;
         legsWrap.appendChild(tr);
       }
     });
@@ -1061,6 +1069,15 @@ function setupCommute() {
         renderBuilder();
       });
     });
+    legsWrap.querySelectorAll(".commute-xfer-input").forEach(inp => {
+      inp.addEventListener("change", (e) => {
+        const i = +e.target.dataset.i;
+        let v = parseInt(e.target.value, 10);
+        if (isNaN(v) || v < 0) v = 0;
+        if (v > 30) v = 30;
+        editingLegs[i].xferMin = v;
+      });
+    });
   }
 
   // ---- Saved summary rendering ----
@@ -1077,7 +1094,7 @@ function setupCommute() {
           </div>
           <div class="commute-route-stations">${fromN} <span style="color:${m.color}">→</span> ${toN}</div>
         </div>
-        ${i < commute.legs.length-1 ? `<div class="commute-route-transfer">🔄 乗り換え</div>` : ""}`;
+        ${i < commute.legs.length-1 ? `<div class="commute-route-transfer">🔄 乗り換え（徒歩 ${commute.legs[i+1].xferMin ?? 5}分）</div>` : ""}`;
     }).join("");
     routeDisp.innerHTML = parts;
   }
@@ -1170,22 +1187,22 @@ function applyCommute() {
       const isHome = li===0 && idx===0;
       const isWork = li===commute.legs.length-1 && idx===1;
       const kind = isHome ? "home" : isWork ? "work" : "transfer";
-      // Travel context: at the "from" station the user rides toward "to".
-      // At a "to"/transfer station that's also the "from" of the next leg,
-      // we still show the boarding direction of the leg they depart on.
-      // idx===0 → boarding station of this leg (heading to leg.to)
-      // idx===1 → arrival station of this leg; if it's a transfer it's also
-      //           the boarding point of the NEXT leg.
       let travelFrom = leg.from, travelTo = leg.to;
       if (idx === 1 && li < commute.legs.length - 1) {
-        // transfer point: use the next leg's direction (where they go next)
         travelFrom = commute.legs[li+1].from;
         travelTo   = commute.legs[li+1].to;
       }
-      addCommuteHighlight(s, kind, { from: travelFrom, to: travelTo });
+      // Context lets a transfer station compute earliest catchable train:
+      //   legIndex = which leg the user BOARDS here
+      //   isTransferPoint = arrival station that's also a boarding point
+      const boardLegIndex = (idx === 1 && li < commute.legs.length - 1) ? li+1 : li;
+      addCommuteHighlight(s, kind, {
+        from: travelFrom, to: travelTo,
+        commute, boardLegIndex,
+        isTransferPoint: (kind === "transfer"),
+      });
     });
   });
-  // dedupe done implicitly by marker positions
 
   if (pts.length >= 2) {
     const lngs = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
@@ -1294,7 +1311,48 @@ async function showCommuteStationPanel(s, kind, travel) {
       return;
     }
 
-    const now = tokyoNowMinutes();
+    let now = tokyoNowMinutes();
+
+    // If this is a TRANSFER point, don't start from the clock — start from when
+    // the user can realistically catch a train here: their ACTUAL scheduled
+    // arrival from the previous leg (from the train timetable) + their personal
+    // walk/transfer time (乗り換え時間).
+    let transferNote = "";
+    if (travel?.isTransferPoint && travel.commute && travel.boardLegIndex > 0) {
+      const prevLeg  = travel.commute.legs[travel.boardLegIndex - 1];
+      const boardLeg = travel.commute.legs[travel.boardLegIndex];
+      const walkMin  = boardLeg?.xferMin ?? 5;
+
+      // Ask the server for the real train: earliest train on the PREVIOUS leg
+      // departing prevLeg.from after 'now', and when it ARRIVES at this station.
+      try {
+        const jr = await apiFetch(
+          `/api/journey?railway=${encodeURIComponent(prevLeg.line)}`
+          + `&from=${encodeURIComponent(prevLeg.from)}`
+          + `&to=${encodeURIComponent(s.id)}`
+          + `&after=${tokyoNowMinutes()}`
+        );
+        if (jr && !jr.error && jr.arrMins != null) {
+          // Ready to board here = scheduled arrival + walk time.
+          now = jr.arrMins + walkMin;
+          const arrHM = jr.arrTime || minutesToHM(jr.arrMins);
+          transferNote = `<div class="commute-tt-note">🚶 ${arrHM}着 + 徒歩${walkMin}分 → ${minutesToHM(now)}以降 / after ${walkMin}-min transfer</div>`;
+        } else {
+          // Fallback: rough estimate if the journey lookup fails.
+          const pFrom = stationData[prevLeg.from]?.order;
+          const pTo   = stationData[s.id]?.order;
+          const rideMin = (pFrom!=null && pTo!=null) ? Math.abs(pTo-pFrom)*2 : 0;
+          now = tokyoNowMinutes() + rideMin + walkMin;
+          transferNote = `<div class="commute-tt-note">🚶 乗り換え徒歩 ${walkMin}分を考慮 / after ${walkMin}-min transfer</div>`;
+        }
+      } catch {
+        const pFrom = stationData[prevLeg.from]?.order;
+        const pTo   = stationData[s.id]?.order;
+        const rideMin = (pFrom!=null && pTo!=null) ? Math.abs(pTo-pFrom)*2 : 0;
+        now = tokyoNowMinutes() + rideMin + walkMin;
+        transferNote = `<div class="commute-tt-note">🚶 乗り換え徒歩 ${walkMin}分を考慮 / after ${walkMin}-min transfer</div>`;
+      }
+    }
     const lineDelaySec = currentLineDelaySec(lineKey);
     const todayCal = todayCalendarKey();   // "Weekday" or "SaturdayHoliday"
 
@@ -1360,7 +1418,8 @@ async function showCommuteStationPanel(s, kind, travel) {
 
     // Show the destination the user is heading toward as a small header.
     const toName = (stationData[travel?.to]?.titleJa) || "";
-    let html = toName ? `<div class="commute-tt-dir">${toName}\u65B9\u9762 / toward ${toName}</div>` : "";
+    let html = transferNote;
+    html += toName ? `<div class="commute-tt-dir">${toName}\u65B9\u9762 / toward ${toName}</div>` : "";
     html += deps.map(d => {
       const destName = (stationData[d.dest]?.titleJa) || (d.dest ? d.dest.split(".").pop() : "");
       return `<div class="commute-tt-row">
@@ -1408,6 +1467,13 @@ function hmToMinutes(hm) {
   const [h,m] = hm.split(":").map(Number);
   if (isNaN(h) || isNaN(m)) return null;
   return h*60 + m;
+}
+// Minutes-since-midnight → "HH:MM" (handles >24h by wrapping).
+function minutesToHM(mins) {
+  if (mins == null) return "";
+  const t = ((mins % 1440) + 1440) % 1440;
+  const h = Math.floor(t/60), m = t%60;
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
 }
 function currentLineDelaySec(lineKey) {
   let maxDelay = 0;
