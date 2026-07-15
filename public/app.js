@@ -1224,7 +1224,9 @@ function addCommuteHighlight(s, kind) {
   const el = document.createElement("div");
   el.className = "commute-highlight commute-highlight-" + kind;
   const label = kind==="home" ? "🏠" : kind==="work" ? "🏢" : "🔄";
-  el.innerHTML = `<div class="commute-hl-ring"></div><div class="commute-hl-label">${label}</div>`;
+  // Label sits INSIDE the ring (a normal flex child) so the marker keeps a
+  // fixed layout box — this is what keeps it anchored when zooming.
+  el.innerHTML = `<div class="commute-hl-ring"><span class="commute-hl-label">${label}</span></div>`;
   const marker = new maplibregl.Marker({ element: el, anchor: "center" })
     .setLngLat([s.lng, s.lat]).addTo(map);
   marker.getElement().style.zIndex = "6";

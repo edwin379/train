@@ -659,35 +659,31 @@ body::after {
 .commute-highlight {
   width: 30px; height: 30px;
   display: flex; align-items: center; justify-content: center;
-  position: relative;
+  cursor: pointer;
 }
 .commute-hl-ring {
-  position: absolute; top: 50%; left: 50%;
-  width: 26px; height: 26px; margin: -13px 0 0 -13px;
-  border-radius: 50%;
+  width: 24px; height: 24px; border-radius: 50%;
   border: 3px solid #fff; box-shadow: 0 0 12px rgba(255,255,255,0.6);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
 }
-/* Pulse is on a separate ::after ring so it never touches the marker's
-   own transform (which MapLibre uses for positioning). This keeps the
-   marker locked to the station when zooming. */
+/* Pulse ring — absolutely positioned INSIDE the ring (which has fixed size),
+   so it never changes the marker's layout box or its transform. */
 .commute-hl-ring::after {
   content: ""; position: absolute; inset: -3px;
   border-radius: 50%; border: 3px solid currentColor;
-  opacity: 0.6;
   animation: commute-pulse 1.8s infinite;
 }
 .commute-highlight-home .commute-hl-ring { border-color: #00e676; box-shadow: 0 0 14px rgba(0,230,118,0.8); color:#00e676; }
 .commute-highlight-work .commute-hl-ring { border-color: #00b4ff; box-shadow: 0 0 14px rgba(0,180,255,0.8); color:#00b4ff; }
 .commute-highlight-transfer .commute-hl-ring { border-color: var(--warn); box-shadow: 0 0 14px rgba(255,170,0,0.8); color:var(--warn); }
 .commute-hl-label {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 13px; z-index: 2; line-height: 1;
+  font-size: 12px; line-height: 1; z-index: 2;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
 }
 @keyframes commute-pulse {
   0%   { transform: scale(1);   opacity: 0.6; }
-  100% { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
 }
 
 /* ── COMMUTE MODE TOGGLE (header) ── */
