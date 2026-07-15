@@ -1170,9 +1170,22 @@ function applyCommute() {
       const isHome = li===0 && idx===0;
       const isWork = li===commute.legs.length-1 && idx===1;
       const kind = isHome ? "home" : isWork ? "work" : "transfer";
-      addCommuteHighlight(s, kind);
+      // Travel context: at the "from" station the user rides toward "to".
+      // At a "to"/transfer station that's also the "from" of the next leg,
+      // we still show the boarding direction of the leg they depart on.
+      // idx===0 → boarding station of this leg (heading to leg.to)
+      // idx===1 → arrival station of this leg; if it's a transfer it's also
+      //           the boarding point of the NEXT leg.
+      let travelFrom = leg.from, travelTo = leg.to;
+      if (idx === 1 && li < commute.legs.length - 1) {
+        // transfer point: use the next leg's direction (where they go next)
+        travelFrom = commute.legs[li+1].from;
+        travelTo   = commute.legs[li+1].to;
+      }
+      addCommuteHighlight(s, kind, { from: travelFrom, to: travelTo });
     });
   });
+  // dedupe done implicitly by marker positions
 
   if (pts.length >= 2) {
     const lngs = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
@@ -1220,7 +1233,7 @@ function setupCommuteModeToggle() {
   updateCommuteModeButton();
 }
 
-function addCommuteHighlight(s, kind) {
+function addCommuteHighlight(s, kind, travel) {
   const colors = { home: "#00e676", work: "#00b4ff", transfer: "#ffaa00" };
   const c = colors[kind] || "#fff";
 
@@ -1246,14 +1259,14 @@ function addCommuteHighlight(s, kind) {
   el.style.cursor = "pointer";
   el.addEventListener("click", (e) => {
     e.stopPropagation();
-    showCommuteStationPanel(s, kind);
+    showCommuteStationPanel(s, kind, travel);
   });
 
   commuteMarkers.push(marker);
 }
 
 // Panel for a clicked commute marker: role + station name + next 5 trains.
-async function showCommuteStationPanel(s, kind) {
+async function showCommuteStationPanel(s, kind, travel) {
   const roleLabel = { home: "\uD83C\uDFE0 HOME / \u81EA\u5B85", work: "\uD83C\uDFE2 WORK / \u52E4\u52D9\u5148", transfer: "\uD83D\uDD04 TRANSFER / \u4E57\u308A\u63DB\u3048" }[kind] || "";
   const roleColor = { home: "#00e676", work: "#00b4ff", transfer: "#ffaa00" }[kind] || "#fff";
   const staName = s.titleJa || s.titleEn;
@@ -1285,29 +1298,59 @@ async function showCommuteStationPanel(s, kind) {
     const lineDelaySec = currentLineDelaySec(lineKey);
     const todayCal = todayCalendarKey();   // "Weekday" or "SaturdayHoliday"
 
-    // Group departures by DIRECTION, filtered to today's calendar only.
-    const byDir = {};
-    for (const tt of res.timetables) {
-      if (getLineKey(tt.railway) !== lineKey) continue;
-      // Match today's calendar (the feed has both Weekday and SaturdayHoliday).
+    // Which direction does the USER travel on this leg? Compare the station
+    // order of their boarding station vs their destination. Trains heading the
+    // same way (their destination is on the same side as the user's "to") are
+    // the only ones we show.
+    const fromOrder = stationData[travel?.from]?.order;
+    const toOrder   = stationData[travel?.to]?.order;
+    const userGoesUp = (fromOrder != null && toOrder != null) ? (toOrder > fromOrder) : null;
+
+    // Figure out the ODPT railDirection the user travels, by finding which
+    // direction's timetable contains a departure whose destination sits toward
+    // the user's "to" station. Then keep only that direction (reliable even for
+    // through-service destinations we don't have coordinates for).
+    const thisOrder = stationData[s.id]?.order;
+    const todaysTimetables = res.timetables.filter(tt => {
+      if (getLineKey(tt.railway) !== lineKey) return false;
       const cal = tt.calendar || "";
-      const isToday = todayCal === "SaturdayHoliday"
+      return todayCal === "SaturdayHoliday"
         ? (cal.includes("Saturday") || cal.includes("Holiday"))
         : cal.includes("Weekday");
-      if (!isToday) continue;
+    });
 
-      const dir = tt.direction || "";
-      if (!byDir[dir]) byDir[dir] = [];
-      for (const d of tt.departures) {
-        const mins = hmToMinutes(d.time);
-        if (mins == null) continue;
-        byDir[dir].push({ ...d, mins });
+    // Score each direction by how many of its departures head the user's way.
+    let userDirection = null;
+    if (userGoesUp != null && thisOrder != null) {
+      let bestScore = -1;
+      for (const tt of todaysTimetables) {
+        let score = 0;
+        for (const d of tt.departures) {
+          const destOrder = stationData[d.dest]?.order;
+          if (destOrder == null) continue;
+          const depGoesUp = destOrder > thisOrder;
+          if (depGoesUp === userGoesUp) score++;
+        }
+        if (score > bestScore) { bestScore = score; userDirection = tt.direction; }
       }
     }
 
-    const dirs = Object.keys(byDir);
-    if (dirs.length === 0) {
-      list.innerHTML = `<div class="commute-tt-loading">\u6642\u523B\u8868\u30C7\u30FC\u30BF\u304C\u3042\u308A\u307E\u305B\u3093 / No timetable</div>`;
+    let deps = [];
+    for (const tt of todaysTimetables) {
+      // If we identified the user's direction, keep only that one.
+      if (userDirection && tt.direction !== userDirection) continue;
+      for (const d of tt.departures) {
+        const mins = hmToMinutes(d.time);
+        if (mins == null) continue;
+        deps.push({ ...d, mins });
+      }
+    }
+
+    // Next 5 upcoming in the user's direction.
+    deps = deps.filter(d => d.mins >= now).sort((a,b) => a.mins - b.mins).slice(0, 5);
+
+    if (deps.length === 0) {
+      list.innerHTML = `<div class="commute-tt-loading">\u672C\u65E5\u306E\u6B8B\u308A\u767A\u8ECA\u306A\u3057 / No more today</div>`;
       return;
     }
 
@@ -1315,28 +1358,19 @@ async function showCommuteStationPanel(s, kind) {
     const statusText = late ? `+${Math.round(lineDelaySec/60)}\u5206\u9045\u308C` : "\u5B9A\u523B";
     const statusColor = late ? "#ff3b3b" : "#00e676";
 
-    let html = "";
-    for (const dir of dirs) {
-      // Next 5 upcoming departures in this direction.
-      const upcoming = byDir[dir]
-        .filter(d => d.mins >= now)
-        .sort((a,b) => a.mins - b.mins)
-        .slice(0, 5);
-      if (upcoming.length === 0) continue;
+    // Show the destination the user is heading toward as a small header.
+    const toName = (stationData[travel?.to]?.titleJa) || "";
+    let html = toName ? `<div class="commute-tt-dir">${toName}\u65B9\u9762 / toward ${toName}</div>` : "";
+    html += deps.map(d => {
+      const destName = (stationData[d.dest]?.titleJa) || (d.dest ? d.dest.split(".").pop() : "");
+      return `<div class="commute-tt-row">
+        <span class="commute-tt-time">${d.time}</span>
+        <span class="commute-tt-status" style="color:${statusColor}">\uFF08${statusText}\uFF09</span>
+        <span class="commute-tt-dest">${destName ? destName+"\u884C" : ""}</span>
+      </div>`;
+    }).join("");
 
-      const dirName = directionLabel(dir);
-      html += `<div class="commute-tt-dir">${dirName}</div>`;
-      html += upcoming.map(d => {
-        const destName = (stationData[d.dest]?.titleJa) || (d.dest ? d.dest.split(".").pop() : "");
-        return `<div class="commute-tt-row">
-          <span class="commute-tt-time">${d.time}</span>
-          <span class="commute-tt-status" style="color:${statusColor}">\uFF08${statusText}\uFF09</span>
-          <span class="commute-tt-dest">${destName ? destName+"\u884C" : ""}</span>
-        </div>`;
-      }).join("");
-    }
-
-    list.innerHTML = html || `<div class="commute-tt-loading">\u672C\u65E5\u306E\u6B8B\u308A\u767A\u8ECA\u306A\u3057 / No more today</div>`;
+    list.innerHTML = html;
   } catch (e) {
     const list = document.getElementById("commute-tt-list");
     if (list) list.innerHTML = `<div class="commute-tt-loading">\u8AAD\u307F\u8FBC\u307F\u30A8\u30E9\u30FC / Error</div>`;

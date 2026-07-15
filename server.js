@@ -17,7 +17,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.static(join(__dirname, "public")));
 
-const KEY  = "2swbs2ofcui4yan1ri19phbxes2r5gxdxhhxbomczfuayo6jobyrl1atiyyy68ym";
+// ODPT API key. On Render (or any host) set an env var ODPT_KEY in the
+// dashboard. The fallback lets it still run locally without setting anything.
+const KEY  = process.env.ODPT_KEY || "2swbs2ofcui4yan1ri19phbxes2r5gxdxhhxbomczfuayo6jobyrl1atiyyy68ym";
 const BASE = "https://api.odpt.org/api/v4";
 
 const FEEDS = {
