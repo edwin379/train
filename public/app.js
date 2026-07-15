@@ -1240,7 +1240,98 @@ function addCommuteHighlight(s, kind) {
   const marker = new maplibregl.Marker({ element: el, anchor: "center", offset: [0, 0] })
     .setLngLat([s.lng, s.lat]).addTo(map);
   marker.getElement().style.zIndex = "6";
+
+  // Clickable → show the commute-station panel with next departures.
+  el.style.pointerEvents = "auto";
+  el.style.cursor = "pointer";
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showCommuteStationPanel(s, kind);
+  });
+
   commuteMarkers.push(marker);
+}
+
+// Panel for a clicked commute marker: role + station name + next 5 trains.
+async function showCommuteStationPanel(s, kind) {
+  const roleLabel = { home: "\uD83C\uDFE0 HOME / \u81EA\u5B85", work: "\uD83C\uDFE2 WORK / \u52E4\u52D9\u5148", transfer: "\uD83D\uDD04 TRANSFER / \u4E57\u308A\u63DB\u3048" }[kind] || "";
+  const roleColor = { home: "#00e676", work: "#00b4ff", transfer: "#ffaa00" }[kind] || "#fff";
+  const staName = s.titleJa || s.titleEn;
+  const lineKey = getLineKey(s.railway);
+  const meta = LINE_META[lineKey] || {};
+
+  setInfoPanel({
+    type  : roleLabel,
+    color : roleColor,
+    name  : staName,
+    sub   : `${meta.en||""}  \uFF0F  ${meta.jp||""}`,
+    html  : `<div class="info-row"><span class="info-key">\u8DEF\u7DDA</span><span class="info-val" style="color:${meta.color}">${meta.jp||meta.en||"\u2014"}</span></div>
+             <div class="info-divider"></div>
+             <div class="commute-tt-title">\u6B21\u306E\u767A\u8ECA / NEXT DEPARTURES</div>
+             <div id="commute-tt-list"><div class="commute-tt-loading">\u8AAD\u307F\u8FBC\u307F\u4E2D... / Loading\u2026</div></div>`,
+  });
+
+  try {
+    const res = await apiFetch(`/api/station-timetable?station=${encodeURIComponent(s.id)}`);
+    const list = document.getElementById("commute-tt-list");
+    if (!list) return;
+
+    if (res.error || !res.timetables || !res.timetables.length) {
+      list.innerHTML = `<div class="commute-tt-loading">\u6642\u523B\u8868\u30C7\u30FC\u30BF\u304C\u3042\u308A\u307E\u305B\u3093 / No timetable</div>`;
+      return;
+    }
+
+    const now = tokyoNowMinutes();
+    const lineDelaySec = currentLineDelaySec(lineKey);
+    let deps = [];
+    for (const tt of res.timetables) {
+      if (getLineKey(tt.railway) !== lineKey) continue;
+      for (const d of tt.departures) {
+        const mins = hmToMinutes(d.time);
+        if (mins == null) continue;
+        deps.push({ ...d, mins, direction: tt.direction });
+      }
+    }
+    deps = deps.filter(d => d.mins >= now).sort((a,b) => a.mins - b.mins).slice(0, 5);
+
+    if (deps.length === 0) {
+      list.innerHTML = `<div class="commute-tt-loading">\u672C\u65E5\u306E\u6B8B\u308A\u767A\u8ECA\u306A\u3057 / No more today</div>`;
+      return;
+    }
+
+    list.innerHTML = deps.map(d => {
+      const destName = (stationData[d.dest]?.titleJa) || (d.dest ? d.dest.split(".").pop() : "");
+      const late = lineDelaySec >= 60;
+      const statusText = late ? `+${Math.round(lineDelaySec/60)}\u5206\u9045\u308C` : "\u5B9A\u523B";
+      const statusColor = late ? "#ff3b3b" : "#00e676";
+      return `<div class="commute-tt-row">
+        <span class="commute-tt-time">${d.time}</span>
+        <span class="commute-tt-status" style="color:${statusColor}">\uFF08${statusText}\uFF09</span>
+        <span class="commute-tt-dest">${destName ? destName+"\u884C" : ""}</span>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    const list = document.getElementById("commute-tt-list");
+    if (list) list.innerHTML = `<div class="commute-tt-loading">\u8AAD\u307F\u8FBC\u307F\u30A8\u30E9\u30FC / Error</div>`;
+  }
+}
+
+function tokyoNowMinutes() {
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+  return now.getHours()*60 + now.getMinutes();
+}
+function hmToMinutes(hm) {
+  if (!hm || !hm.includes(":")) return null;
+  const [h,m] = hm.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h*60 + m;
+}
+function currentLineDelaySec(lineKey) {
+  let maxDelay = 0;
+  for (const v of allVehicles) {
+    if (getLineKey(v.routeId) === lineKey) maxDelay = Math.max(maxDelay, v.delaySec || 0);
+  }
+  return maxDelay;
 }
 
 function clearCommuteHighlights() {

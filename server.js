@@ -617,6 +617,38 @@ app.get("/api/railways-full", (_,res) => res.json({railways:cache.railwaysFull, 
 app.get("/api/stations",      (_,res) => res.json({stations:cache.stations, lastUpdated:cache.lastUpdated}));
 app.get("/api/train-info",    (_,res) => res.json({trainInfo:cache.trainInfo, lastUpdated:cache.lastUpdated}));
 app.get("/api/status",        (_,res) => res.json({ok:true, count:cache.vehicles.length}));
+
+// Station timetable — next departures for a specific station.
+// The frontend calls this when a commute marker is clicked.
+// Query: /api/station-timetable?station=odpt.Station:Toei.Oedo.Tochomae
+const stTimetableCache = {};   // station id → { data, fetchedAt }
+app.get("/api/station-timetable", async (req, res) => {
+  const station = req.query.station;
+  if (!station) return res.json({ error: "missing station" });
+  try {
+    // Cache per station for 10 minutes (timetables are static).
+    const cached = stTimetableCache[station];
+    if (cached && (Date.now() - cached.fetchedAt) < 600000) {
+      return res.json({ station, timetables: cached.data });
+    }
+    const url = `${BASE}/odpt:StationTimetable?odpt:station=${station}&acl:consumerKey=${KEY}`;
+    const data = await fetchJson(url);
+    const slim = (Array.isArray(data) ? data : []).map(t => ({
+      railway   : t["odpt:railway"] || "",
+      direction : t["odpt:railDirection"] || "",
+      calendar  : t["odpt:calendar"] || "",
+      departures: (t["odpt:stationTimetableObject"] || []).map(o => ({
+        time: o["odpt:departureTime"] || "",
+        dest: (o["odpt:destinationStation"] || [])[0] || "",
+        type: o["odpt:trainType"] || "",
+      })).filter(d => d.time),
+    }));
+    stTimetableCache[station] = { data: slim, fetchedAt: Date.now() };
+    res.json({ station, timetables: slim });
+  } catch (e) {
+    res.json({ error: e.message, station });
+  }
+});
 app.get("/api/debug",         (_,res) => {
   const dist = {};
   cache.vehicles.forEach(v => { dist[v.routeId||"?"] = (dist[v.routeId||"?"]||0)+1; });
