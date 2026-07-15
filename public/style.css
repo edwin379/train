@@ -657,29 +657,27 @@ body::after {
 
 /* ── Commute highlight markers on the map ── */
 .commute-highlight {
-  width: 30px; height: 30px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-}
-.commute-hl-ring {
-  width: 24px; height: 24px; border-radius: 50%;
-  border: 3px solid #fff; box-shadow: 0 0 12px rgba(255,255,255,0.6);
-  display: flex; align-items: center; justify-content: center;
+  width: 0; height: 0;
   position: relative;
 }
-/* Pulse ring — absolutely positioned INSIDE the ring (which has fixed size),
-   so it never changes the marker's layout box or its transform. */
+/* The ring is centered on the marker's (0,0) anchor point via translate(-50%,-50%).
+   Because the marker box is 0x0, MapLibre always centers it exactly on the
+   station; the ring is purely visual and doesn't change that measurement. */
+.commute-hl-ring {
+  position: absolute; top: 0; left: 0;
+  width: 24px; height: 24px; box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border-radius: 50%; border: 3px solid #fff;
+  box-shadow: 0 0 12px rgba(255,255,255,0.5);
+  display: flex; align-items: center; justify-content: center;
+}
 .commute-hl-ring::after {
   content: ""; position: absolute; inset: -3px;
   border-radius: 50%; border: 3px solid currentColor;
   animation: commute-pulse 1.8s infinite;
 }
-.commute-highlight-home .commute-hl-ring { border-color: #00e676; box-shadow: 0 0 14px rgba(0,230,118,0.8); color:#00e676; }
-.commute-highlight-work .commute-hl-ring { border-color: #00b4ff; box-shadow: 0 0 14px rgba(0,180,255,0.8); color:#00b4ff; }
-.commute-highlight-transfer .commute-hl-ring { border-color: var(--warn); box-shadow: 0 0 14px rgba(255,170,0,0.8); color:var(--warn); }
-.commute-hl-label {
-  font-size: 12px; line-height: 1; z-index: 2;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+.commute-hl-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #fff;
 }
 @keyframes commute-pulse {
   0%   { transform: scale(1);   opacity: 0.6; }

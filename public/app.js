@@ -1221,13 +1221,23 @@ function setupCommuteModeToggle() {
 }
 
 function addCommuteHighlight(s, kind) {
+  const colors = { home: "#00e676", work: "#00b4ff", transfer: "#ffaa00" };
+  const c = colors[kind] || "#fff";
+
+  // NO EMOJI. Emojis render at unpredictable sizes and load timing, which
+  // throws off MapLibre's center measurement so later markers drift on zoom.
+  // A pure CSS ring + inner dot has a guaranteed fixed size and stays anchored.
+  // A tiny 1x1 center point is used as the marker element, and the visible
+  // ring is drawn with an absolutely-centered child that has NO layout effect,
+  // so MapLibre always measures the same (1x1) box and centers it perfectly.
   const el = document.createElement("div");
   el.className = "commute-highlight commute-highlight-" + kind;
-  const label = kind==="home" ? "🏠" : kind==="work" ? "🏢" : "🔄";
-  // Label sits INSIDE the ring (a normal flex child) so the marker keeps a
-  // fixed layout box — this is what keeps it anchored when zooming.
-  el.innerHTML = `<div class="commute-hl-ring"><span class="commute-hl-label">${label}</span></div>`;
-  const marker = new maplibregl.Marker({ element: el, anchor: "center" })
+  el.style.cssText = "width:0;height:0;";
+  el.innerHTML =
+    `<div class="commute-hl-ring" style="border-color:${c};color:${c};">` +
+    `<span class="commute-hl-dot" style="background:${c};"></span></div>`;
+
+  const marker = new maplibregl.Marker({ element: el, anchor: "center", offset: [0, 0] })
     .setLngLat([s.lng, s.lat]).addTo(map);
   marker.getElement().style.zIndex = "6";
   commuteMarkers.push(marker);
