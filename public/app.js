@@ -1154,6 +1154,29 @@ function setupCommute() {
     hide();
     applyCommute();
   });
+
+  document.getElementById("commute-reverse-btn").addEventListener("click", () => {
+    const commute = loadCommute();
+    if (!commute || !commute.legs) return;
+    // Reverse the journey: reverse leg order AND swap each leg's from/to.
+    // The transfer walk time (xferMin) shifts to the leg that now precedes it.
+    const reversed = commute.legs.slice().reverse().map(l => ({
+      line: l.line, from: l.to, to: l.from, xferMin: l.xferMin,
+    }));
+    // Re-assign walk times: in the reversed route, the walk time belongs to the
+    // leg you board AFTER a transfer. Shift them so they line up sensibly.
+    const walkTimes = commute.legs.map(l => l.xferMin ?? 5);
+    // Original walk times apply between leg i-1 and i. After reversing, the
+    // transfer between reversed legs k and k+1 corresponds to the original
+    // transfer between legs (n-1-k-1) and (n-1-k). Simplest: reuse in reverse.
+    const rWalks = walkTimes.slice(1).reverse();  // transfers only
+    for (let k = 1; k < reversed.length; k++) {
+      reversed[k].xferMin = rWalks[k-1] ?? 5;
+    }
+    saveCommute({ legs: reversed, savedAt: Date.now() });
+    refreshView();
+    applyCommute();
+  });
 }
 
 // Apply the saved commute to the map: filter to its lines + highlight its stations.
@@ -1289,6 +1312,21 @@ async function showCommuteStationPanel(s, kind, travel) {
   const staName = s.titleJa || s.titleEn;
   const lineKey = getLineKey(s.railway);
   const meta = LINE_META[lineKey] || {};
+
+  // WORK (destination) marker: show ARRIVAL times, not departures. Compute the
+  // next trains arriving here from the final leg's boarding station.
+  if (kind === "work" && travel?.commute) {
+    setInfoPanel({
+      type: roleLabel, color: roleColor, name: staName,
+      sub: `${meta.en||""}  \uFF0F  ${meta.jp||""}`,
+      html: `<div class="info-row"><span class="info-key">\u8DEF\u7DDA</span><span class="info-val" style="color:${meta.color}">${meta.jp||meta.en||"\u2014"}</span></div>
+             <div class="info-divider"></div>
+             <div class="commute-tt-title">\u5230\u7740\u6642\u523B / ARRIVALS</div>
+             <div id="commute-tt-list"><div class="commute-tt-loading">\u8AAD\u307F\u8FBC\u307F\u4E2D... / Loading\u2026</div></div>`,
+    });
+    await showWorkArrivals(s, travel);
+    return;
+  }
 
   setInfoPanel({
     type  : roleLabel,
@@ -1474,6 +1512,74 @@ function minutesToHM(mins) {
   const t = ((mins % 1440) + 1440) % 1440;
   const h = Math.floor(t/60), m = t%60;
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+}
+
+// Show the next arrivals at the WORK (final destination) station: for the last
+// leg, find the next trains from its boarding station and show when each
+// reaches here. Chains through transfers by walking each leg in sequence.
+async function showWorkArrivals(s, travel) {
+  const list = document.getElementById("commute-tt-list");
+  if (!list) return;
+  const commute = travel.commute;
+  const lineDelaySec = currentLineDelaySec(getLineKey(s.railway));
+  const late = lineDelaySec >= 60;
+  const statusText = late ? `+${Math.round(lineDelaySec/60)}\u5206\u9045\u308C` : "\u5B9A\u523B";
+  const statusColor = late ? "#ff3b3b" : "#00e676";
+
+  try {
+    // Walk the whole journey for the next few start times, computing the final
+    // arrival at work for each. We iterate the first leg's departures, then
+    // chain each subsequent leg with the walk time.
+    const firstLeg = commute.legs[0];
+    let startAfter = tokyoNowMinutes();
+    const arrivals = [];
+
+    for (let n = 0; n < 5; n++) {
+      let curAfter = startAfter;
+      let ok = true;
+      let firstDep = null;
+
+      for (let li = 0; li < commute.legs.length; li++) {
+        const leg = commute.legs[li];
+        const jr = await apiFetch(
+          `/api/journey?railway=${encodeURIComponent(leg.line)}`
+          + `&from=${encodeURIComponent(leg.from)}`
+          + `&to=${encodeURIComponent(leg.to)}`
+          + `&after=${curAfter}`
+        );
+        if (!jr || jr.error || jr.arrMins == null) { ok = false; break; }
+        if (li === 0) firstDep = jr.depMins;
+        // Next leg can be boarded after arrival + that leg's walk time.
+        const nextWalk = commute.legs[li+1]?.xferMin ?? 0;
+        curAfter = jr.arrMins + nextWalk;
+        if (li === commute.legs.length - 1) {
+          arrivals.push({ arrMins: jr.arrMins, depMins: firstDep });
+        }
+      }
+      if (!ok) break;
+      // Next iteration starts one minute after this run's first departure,
+      // so we get the following train.
+      startAfter = (firstDep != null ? firstDep : startAfter) + 1;
+    }
+
+    if (arrivals.length === 0) {
+      list.innerHTML = `<div class="commute-tt-loading">\u672C\u65E5\u306E\u5230\u7740\u60C5\u5831\u306A\u3057 / No more arrivals today</div>`;
+      return;
+    }
+
+    const homeName = stationData[commute.legs[0].from]?.titleJa || "";
+    let html = homeName ? `<div class="commute-tt-dir">${homeName}\u767A \u2192 \u5230\u7740 / from ${homeName}</div>` : "";
+    html += arrivals.map(a => {
+      return `<div class="commute-tt-row">
+        <span class="commute-tt-time">${minutesToHM(a.arrMins)}</span>
+        <span class="commute-tt-status" style="color:${statusColor}">\uFF08${statusText}\uFF09</span>
+        <span class="commute-tt-dest">${minutesToHM(a.depMins)}\u767A</span>
+      </div>`;
+    }).join("");
+    list.innerHTML = html;
+  } catch (e) {
+    list.innerHTML = `<div class="commute-tt-loading">\u8AAD\u307F\u8FBC\u307F\u30A8\u30E9\u30FC / Error</div>`;
+  }
 }
 function currentLineDelaySec(lineKey) {
   let maxDelay = 0;
