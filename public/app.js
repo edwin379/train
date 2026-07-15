@@ -832,6 +832,7 @@ async function main() {
   setupSearch();
   setupAboutModal();
   setupCommute();
+  setupCommuteModeToggle();
   autoApplyCommuteOnLoad();
 }
 
@@ -1104,6 +1105,7 @@ function setupCommute() {
     editingLegs = [];
     refreshView();
     applyCommute();   // immediately apply to the map
+    updateCommuteModeButton();
   });
 
   document.getElementById("commute-cancel-btn").addEventListener("click", () => {
@@ -1124,8 +1126,10 @@ function setupCommute() {
     if (confirm("保存した通勤ルートを削除しますか？")) {
       clearCommuteStorage();
       clearCommuteHighlights();
+      exitCommuteMode();
       editingLegs = [];
       refreshView();
+      updateCommuteModeButton();
     }
   });
 
@@ -1136,9 +1140,14 @@ function setupCommute() {
 }
 
 // Apply the saved commute to the map: filter to its lines + highlight its stations.
+let commuteModeActive = false;
+
 function applyCommute() {
   const commute = loadCommute();
   if (!commute || !commute.legs || !commute.legs.length) return;
+
+  commuteModeActive = true;
+  updateCommuteModeButton();
 
   // 1. Filter lines to only those in the commute
   const commuteLines = new Set(commute.legs.map(l => l.line));
@@ -1158,7 +1167,6 @@ function applyCommute() {
       const s = stationData[sid];
       if (!s) return;
       pts.push([s.lng, s.lat]);
-      // Mark: home = first station of first leg, work = last of last leg
       const isHome = li===0 && idx===0;
       const isWork = li===commute.legs.length-1 && idx===1;
       const kind = isHome ? "home" : isWork ? "work" : "transfer";
@@ -1166,7 +1174,6 @@ function applyCommute() {
     });
   });
 
-  // Fit map to the commute
   if (pts.length >= 2) {
     const lngs = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
     const bounds = [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]];
@@ -1174,6 +1181,43 @@ function applyCommute() {
   } else if (pts.length === 1) {
     map.flyTo({ center: pts[0], zoom: 14 });
   }
+}
+
+// Exit commute mode → show all lines and trains again.
+function exitCommuteMode() {
+  commuteModeActive = false;
+  updateCommuteModeButton();
+  clearCommuteHighlights();
+  // Turn all lines back on
+  activeLines = new Set(Object.keys(LINE_META));
+  document.querySelectorAll(".line-btn").forEach(b => b.classList.add("active"));
+  updateLineVis();
+  updateToggleBtn();
+}
+
+// Toggle button in the header switches between commute view and normal view.
+function updateCommuteModeButton() {
+  const btn = document.getElementById("commute-mode-toggle");
+  if (!btn) return;
+  const hasCommute = !!(loadCommute()?.legs?.length);
+  btn.style.display = hasCommute ? "" : "none";
+  if (commuteModeActive) {
+    btn.textContent = "🗺 全路線表示";
+    btn.classList.add("active");
+  } else {
+    btn.textContent = "🚊 通勤ルート表示";
+    btn.classList.remove("active");
+  }
+}
+
+function setupCommuteModeToggle() {
+  const btn = document.getElementById("commute-mode-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    if (commuteModeActive) exitCommuteMode();
+    else applyCommute();
+  });
+  updateCommuteModeButton();
 }
 
 function addCommuteHighlight(s, kind) {

@@ -482,6 +482,7 @@ body::after {
   #train-count-badge { font-size: 9px; padding: 2px 6px; }
   #about-btn { font-size: 9px; padding: 3px 9px; }
   #commute-btn { font-size: 9px; padding: 3px 8px; }
+  #commute-mode-toggle { font-size: 9px; padding: 3px 8px; }
   #live-badge { font-size: 10px; padding: 3px 8px; }
 
   /* ── SEARCH BAR: full-width row BELOW the header, not overlapping ── */
@@ -655,17 +656,50 @@ body::after {
 .commute-actions .commute-btn-primary { flex: 1; min-width: 130px; }
 
 /* ── Commute highlight markers on the map ── */
-.commute-highlight { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; position: relative; }
+.commute-highlight {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
 .commute-hl-ring {
-  position: absolute; width: 30px; height: 30px; border-radius: 50%;
+  position: absolute; top: 50%; left: 50%;
+  width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border-radius: 50%;
   border: 3px solid #fff; box-shadow: 0 0 12px rgba(255,255,255,0.6);
+}
+/* Pulse is on a separate ::after ring so it never touches the marker's
+   own transform (which MapLibre uses for positioning). This keeps the
+   marker locked to the station when zooming. */
+.commute-hl-ring::after {
+  content: ""; position: absolute; inset: -3px;
+  border-radius: 50%; border: 3px solid currentColor;
+  opacity: 0.6;
   animation: commute-pulse 1.8s infinite;
 }
-.commute-highlight-home .commute-hl-ring { border-color: #00e676; box-shadow: 0 0 14px rgba(0,230,118,0.8); }
-.commute-highlight-work .commute-hl-ring { border-color: #00b4ff; box-shadow: 0 0 14px rgba(0,180,255,0.8); }
-.commute-highlight-transfer .commute-hl-ring { border-color: var(--warn); box-shadow: 0 0 14px rgba(255,170,0,0.8); }
-.commute-hl-label { font-size: 15px; z-index: 2; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); }
+.commute-highlight-home .commute-hl-ring { border-color: #00e676; box-shadow: 0 0 14px rgba(0,230,118,0.8); color:#00e676; }
+.commute-highlight-work .commute-hl-ring { border-color: #00b4ff; box-shadow: 0 0 14px rgba(0,180,255,0.8); color:#00b4ff; }
+.commute-highlight-transfer .commute-hl-ring { border-color: var(--warn); box-shadow: 0 0 14px rgba(255,170,0,0.8); color:var(--warn); }
+.commute-hl-label {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 13px; z-index: 2; line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+}
 @keyframes commute-pulse {
-  0%,100% { transform: scale(1); opacity: 1; }
-  50%     { transform: scale(1.15); opacity: 0.7; }
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* ── COMMUTE MODE TOGGLE (header) ── */
+#commute-mode-toggle {
+  font-family: var(--mono); font-size: 10px; color: var(--success);
+  letter-spacing: 1px; background: rgba(0,230,118,0.1);
+  border: 1px solid rgba(0,230,118,0.4); border-radius: 3px;
+  padding: 4px 12px; cursor: pointer; pointer-events: auto;
+  transition: all 0.2s; white-space: nowrap;
+}
+#commute-mode-toggle:hover { background: rgba(0,230,118,0.22); color: #fff; }
+#commute-mode-toggle.active {
+  color: var(--accent); background: rgba(0,180,255,0.12);
+  border-color: rgba(0,180,255,0.45);
 }

@@ -45,6 +45,7 @@
   <div id="clock">--:--:--</div>
   <div id="next-update">NEXT UPDATE: --s</div>
   <div id="train-count-badge">— TRAINS</div>
+  <button id="commute-mode-toggle" style="display:none">🚊 通勤ルート表示</button>
   <button id="commute-btn">🚊 マイ通勤</button>
   <button id="about-btn">ABOUT</button>
 </div>
@@ -163,7 +164,7 @@
   </div>
 </div>
 
-<script src="app.js?v=36"></script>
+<script src="app.js?v=37"></script>
 <script>
   // Register the service worker to make the app installable (PWA).
   if ("serviceWorker" in navigator) {
