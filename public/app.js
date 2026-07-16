@@ -1140,7 +1140,7 @@ function setupCommute() {
   });
 
   document.getElementById("commute-clear-btn").addEventListener("click", () => {
-    if (confirm("保存した通勤ルートを削除しますか？")) {
+    if (confirm("保存したルートを削除しますか？")) {
       clearCommuteStorage();
       clearCommuteHighlights();
       exitCommuteMode();
@@ -1258,7 +1258,7 @@ function updateCommuteModeButton() {
     btn.textContent = "🗺 全路線表示";
     btn.classList.add("active");
   } else {
-    btn.textContent = "🚊 通勤ルート表示";
+    btn.textContent = "🚊 マイルート表示";
     btn.classList.remove("active");
   }
 }
@@ -1307,7 +1307,7 @@ function addCommuteHighlight(s, kind, travel) {
 
 // Panel for a clicked commute marker: role + station name + next 5 trains.
 async function showCommuteStationPanel(s, kind, travel) {
-  const roleLabel = { home: "\uD83C\uDFE0 HOME / \u81EA\u5B85", work: "\uD83C\uDFE2 WORK / \u52E4\u52D9\u5148", transfer: "\uD83D\uDD04 TRANSFER / \u4E57\u308A\u63DB\u3048" }[kind] || "";
+  const roleLabel = { home: "\uD83D\uDEA9 DEPARTURE / \u51FA\u767A", work: "\uD83C\uDFC1 ARRIVAL / \u5230\u7740", transfer: "\uD83D\uDD04 TRANSFER / \u4E57\u308A\u63DB\u3048" }[kind] || "";
   const roleColor = { home: "#00e676", work: "#00b4ff", transfer: "#ffaa00" }[kind] || "#fff";
   const staName = s.titleJa || s.titleEn;
   const lineKey = getLineKey(s.railway);
@@ -1528,13 +1528,15 @@ async function showWorkArrivals(s, travel) {
 
   try {
     // Walk the whole journey for the next few start times, computing the final
-    // arrival at work for each. We iterate the first leg's departures, then
-    // chain each subsequent leg with the walk time.
-    const firstLeg = commute.legs[0];
+    // arrival at work for each. Iterate the first leg's departures, chaining
+    // each subsequent leg with the walk time.
     let startAfter = tokyoNowMinutes();
     const arrivals = [];
+    const seenArr = new Set();     // dedupe identical final arrivals
+    let guard = 0;
 
-    for (let n = 0; n < 5; n++) {
+    while (arrivals.length < 5 && guard < 20) {
+      guard++;
       let curAfter = startAfter;
       let ok = true;
       let firstDep = null;
@@ -1549,18 +1551,25 @@ async function showWorkArrivals(s, travel) {
         );
         if (!jr || jr.error || jr.arrMins == null) { ok = false; break; }
         if (li === 0) firstDep = jr.depMins;
-        // Next leg can be boarded after arrival + that leg's walk time.
         const nextWalk = commute.legs[li+1]?.xferMin ?? 0;
         curAfter = jr.arrMins + nextWalk;
         if (li === commute.legs.length - 1) {
-          arrivals.push({ arrMins: jr.arrMins, depMins: firstDep });
+          // Only add if this is a new arrival (avoids repeats from convergence).
+          if (!seenArr.has(jr.arrMins)) {
+            seenArr.add(jr.arrMins);
+            arrivals.push({ arrMins: jr.arrMins, depMins: firstDep });
+          }
         }
       }
       if (!ok) break;
-      // Next iteration starts one minute after this run's first departure,
-      // so we get the following train.
-      startAfter = (firstDep != null ? firstDep : startAfter) + 1;
+      // Advance to just after this run's first departure so the next loop finds
+      // the following train. If firstDep didn't advance, force it forward.
+      const nextStart = (firstDep != null ? firstDep : startAfter) + 1;
+      startAfter = Math.max(nextStart, startAfter + 1);
     }
+
+    // Sort by arrival time so the list is always chronological.
+    arrivals.sort((a,b) => a.arrMins - b.arrMins);
 
     if (arrivals.length === 0) {
       list.innerHTML = `<div class="commute-tt-loading">\u672C\u65E5\u306E\u5230\u7740\u60C5\u5831\u306A\u3057 / No more arrivals today</div>`;

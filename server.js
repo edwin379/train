@@ -660,6 +660,9 @@ function parseHMsrv(hm) {
   if (!hm || !hm.includes(":")) return null;
   const [h, m] = hm.split(":").map(Number);
   if (isNaN(h) || isNaN(m)) return null;
+  // Toei late-night trains use 24+ hour notation (e.g. "24:30" = 00:30 next day).
+  // Keep them as-is (>=1440) so they sort AFTER earlier times, which is correct
+  // for "next train" logic near end of service.
   return h * 60 + m;
 }
 function todayCalendarSrv() {
@@ -693,30 +696,38 @@ app.get("/api/journey", async (req, res) => {
       tts = trainTtCache[cacheKey] = { data: slim, fetchedAt: Date.now() };
     }
 
-    // Find the train with the EARLIEST departure from "from" (>= after) that
-    // later stops at "to". Return its dep + arr times.
+    // Among all trains departing "from" at/after "after" that later reach "to",
+    // pick the one that ARRIVES EARLIEST. (Picking earliest departure was wrong:
+    // a slow/rare train leaving first could arrive later than a fast train
+    // leaving a few minutes afterward.)
     let best = null;
     for (const t of tts.data) {
       const stops = t.stops;
+      // Find where this train departs "from" (first matching stop).
+      let depMins = null, depTime = null, fromIdx = -1;
       for (let i = 0; i < stops.length; i++) {
         const st = stops[i];
         if ((st.depSt === from || st.arrSt === from) && st.dep) {
-          const depMins = parseHMsrv(st.dep);
-          if (depMins == null || depMins < after) continue;
-          // look for "to" later in this train's stops
-          for (let j = i + 1; j < stops.length; j++) {
-            const st2 = stops[j];
-            if (st2.arrSt === to || st2.depSt === to) {
-              const arrTime = st2.arr || st2.dep;
-              const arrMins = parseHMsrv(arrTime);
-              if (arrMins == null) break;
-              if (!best || depMins < best.depMins) {
-                best = { depTime: st.dep, depMins, arrTime, arrMins };
-              }
-              break;
-            }
+          const dm = parseHMsrv(st.dep);
+          if (dm == null || dm < after) continue;
+          depMins = dm; depTime = st.dep; fromIdx = i;
+          break;
+        }
+      }
+      if (fromIdx === -1) continue;
+      // Find where it reaches "to" AFTER departing from.
+      for (let j = fromIdx + 1; j < stops.length; j++) {
+        const st2 = stops[j];
+        if (st2.arrSt === to || st2.depSt === to) {
+          const arrTime = st2.arr || st2.dep;
+          const arrMins = parseHMsrv(arrTime);
+          if (arrMins == null) break;
+          // Must actually arrive after it departs (guards against loop weirdness).
+          if (arrMins <= depMins) break;
+          if (!best || arrMins < best.arrMins) {
+            best = { depTime, depMins, arrTime, arrMins };
           }
-          break;   // only the first matching stop per train
+          break;
         }
       }
     }
