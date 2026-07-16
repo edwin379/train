@@ -493,6 +493,7 @@ body::after {
      Tapping it slides the full search bar open to the left. ── */
   #search-toggle { display: flex; }   /* toggle button only shows on mobile */
 
+  /* COLLAPSED state: a small icon-sized box aligned to the right. */
   #search-box {
     position: fixed;
     right: 10px; left: auto;
@@ -500,31 +501,35 @@ body::after {
     width: 46px;                       /* collapsed: just the icon */
     z-index: 160;
     transition: width 0.28s ease;
-    display: flex; justify-content: flex-end;
   }
-  #search-box.open {
-    width: calc(100vw - 20px);         /* expanded: nearly full width */
-  }
-
   #search-toggle {
-    width: 46px; height: 46px; flex-shrink: 0;
+    width: 46px; height: 46px;
     align-items: center; justify-content: center;
     background: rgba(8,16,26,0.75);
     border: 1px solid var(--panel-border); border-radius: 10px;
     font-size: 18px; cursor: pointer; pointer-events: auto;
     backdrop-filter: blur(20px);
-    padding: 0;
+    padding: 0; margin-left: auto;
+  }
+  /* Input hidden when collapsed. */
+  #search-input { display: none; }
+
+  /* OPEN state: expand to near-full width; input becomes a normal-height row,
+     results drop BELOW it (normal block flow, not flex). */
+  #search-box.open {
+    width: calc(100vw - 20px);
+    left: 10px; right: 10px;
   }
   #search-box.open #search-toggle { display: none; }   /* hide icon once open */
-
-  /* Input hidden when collapsed, revealed when open */
-  #search-input {
-    display: none;
-    width: 100%; font-size: 16px;      /* 16px stops iOS auto-zoom */
+  #search-box.open #search-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    height: 44px;                      /* fixed height — not stretched */
+    font-size: 16px;                   /* 16px stops iOS auto-zoom */
     background: rgba(8,16,26,0.75);    /* lower opacity per request */
     backdrop-filter: blur(20px);
   }
-  #search-box.open #search-input { display: block; }
 
   #search-results {
     background: rgba(10,16,26,0.82);   /* lower opacity */
