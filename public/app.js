@@ -852,8 +852,26 @@ function setupAboutModal() {
 function setupSearch() {
   const input   = document.getElementById("search-input");
   const results = document.getElementById("search-results");
+  const box     = document.getElementById("search-box");
+  const toggle  = document.getElementById("search-toggle");
   if (!input || !results) return;
   let activeIndex = -1, currentMatches = [];
+
+  // Mobile: tapping the icon slides the search bar open and focuses the input.
+  if (toggle && box) {
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      box.classList.add("open");
+      setTimeout(() => input.focus(), 50);
+    });
+    // Tapping outside the search box closes it (mobile collapse).
+    document.addEventListener("click", (e) => {
+      if (!box.contains(e.target)) {
+        box.classList.remove("open");
+        results.classList.remove("visible");
+      }
+    });
+  }
 
   function render(matches) {
     currentMatches = matches; activeIndex = -1;
@@ -880,6 +898,7 @@ function setupSearch() {
     map.flyTo({ center: [s.lng, s.lat], zoom: 15, speed: 1.2, essential: true });
     input.value = s.titleJa || s.titleEn;
     results.classList.remove("visible");
+    if (box) box.classList.remove("open");   // collapse the mobile search bar
     flashStation(s);
     // Also open the station's info panel
     const lineKey = getLineKey(s.railway);
@@ -916,7 +935,7 @@ function setupSearch() {
       if (activeIndex >= 0 && currentMatches[activeIndex]) selectStation(currentMatches[activeIndex]);
       else if (currentMatches[0]) selectStation(currentMatches[0]);
       return;
-    } else if (e.key === "Escape") { results.classList.remove("visible"); input.blur(); return; }
+    } else if (e.key === "Escape") { results.classList.remove("visible"); if (box) box.classList.remove("open"); input.blur(); return; }
     else return;
     items.forEach((el, i) => el.classList.toggle("active", i === activeIndex));
   });
