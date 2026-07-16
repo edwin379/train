@@ -65,6 +65,7 @@ body::after {
 .loading-sub {
   font-family: var(--mono); font-size: 11px;
   color: var(--text-dim); letter-spacing: 4px; text-transform: uppercase;
+  text-align: center; padding: 0 20px; line-height: 1.6;
 }
 .loading-bar-wrap {
   width: 300px; height: 2px;
@@ -470,12 +471,14 @@ body::after {
   /* ── HEADER: let it wrap cleanly and shrink, at the very top ── */
   #header {
     flex-wrap: wrap;
-    gap: 8px 10px;
-    padding: 10px 12px;
-    padding-top: max(10px, env(safe-area-inset-top));
-    background: linear-gradient(180deg, rgba(5,10,15,0.98) 60%, rgba(5,10,15,0) 100%);
+    gap: 6px 8px;
+    padding: 8px 10px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    background: linear-gradient(180deg, rgba(5,10,15,0.98) 78%, rgba(5,10,15,0) 100%);
+    align-items: center;
   }
-  #header-title .en { font-size: 22px; }
+  #header-title { width: 100%; }        /* title on its own row */
+  #header-title .en { font-size: 20px; }
   #header-title .jp { font-size: 8px; letter-spacing: 2px; }
   #clock { font-size: 11px; }
   #next-update { font-size: 9px; }
@@ -485,15 +488,14 @@ body::after {
   #commute-mode-toggle { font-size: 9px; padding: 3px 8px; }
   #live-badge { font-size: 10px; padding: 3px 8px; }
 
-  /* ── SEARCH BAR: full-width row BELOW the header, not overlapping ── */
+  /* ── SEARCH BAR: full-width row BELOW the header, not overlapping ──
+     The header now wraps to a few rows (title, status, buttons), so we push
+     the search box down far enough to clear them all. */
   #search-box {
     position: fixed;
-    top: auto;                          /* released from the fixed 56px */
     left: 8px; right: 8px;
     width: auto;
-    /* Sit just under the header. The header can be ~2 rows tall on mobile,
-       so we place the search bar with a comfortable offset from the top. */
-    top: max(96px, calc(env(safe-area-inset-top) + 90px));
+    top: max(132px, calc(env(safe-area-inset-top) + 126px));
     z-index: 160;
   }
   #search-input { font-size: 16px; }    /* 16px stops iOS auto-zoom on focus */
@@ -729,3 +731,27 @@ body::after {
   border-bottom: 1px solid rgba(0,180,255,0.2);
 }
 .commute-tt-dir:first-child { margin-top: 0; }
+
+/* ── Transfer walk-time input in the builder ── */
+.commute-transfer-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap;
+}
+.commute-transfer-time {
+  color: var(--text); font-family: var(--body); font-size: 11px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.commute-xfer-input {
+  width: 44px; background: rgba(5,10,15,0.9);
+  border: 1px solid var(--panel-border); border-radius: 4px;
+  padding: 3px 6px; font-family: var(--mono); font-size: 13px;
+  color: #fff; text-align: center;
+}
+.commute-xfer-input:focus { outline: none; border-color: rgba(255,170,0,0.6); }
+
+/* Note shown atop a transfer station's timetable */
+.commute-tt-note {
+  font-family: var(--body); font-size: 10px; color: var(--warn);
+  background: rgba(255,170,0,0.08); border: 1px solid rgba(255,170,0,0.25);
+  border-radius: 4px; padding: 5px 8px; margin-bottom: 10px; line-height: 1.4;
+}
