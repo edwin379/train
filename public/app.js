@@ -164,21 +164,7 @@ async function apiFetch(path) {
 function initMap() {
   map = new maplibregl.Map({
     container: "map",
-    style: {
-      version: 8,
-      glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-      sources: { carto: {
-        type: "raster",
-        tiles: [
-          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"
-        ],
-        tileSize: 256,
-        attribution: "© OpenStreetMap © CARTO"
-      }},
-      layers: [{ id:"carto-dark", type:"raster", source:"carto" }],
-    },
+    style: "https://tiles.openfreemap.org/styles/dark",
     center: TOKYO_CENTER,
     zoom: 12, minZoom: 9, maxZoom: 18,
   });
